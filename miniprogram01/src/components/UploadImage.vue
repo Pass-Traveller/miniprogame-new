@@ -57,7 +57,7 @@ const props = defineProps({
   },
   maxSize: {
     type: Number,
-    default: 500 * 1024 * 1024
+    default: 10 * 1024 * 1024
   }
 })
 

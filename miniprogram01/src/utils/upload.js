@@ -1,6 +1,7 @@
 import { showErrorToast } from '@/utils/feedback'
 
-const MAX_FILE_SIZE = 50 * 1024 * 1024
+const MAX_FILE_SIZE = 10 * 1024 * 1024
+const FILE_SELECT_UNSUPPORTED = 'unsupported'
 
 /** 上传前先说明用途，符合微信“先说明、后申请”的合规要求。 */
 export const confirmMediaPermission = (sourceType) =>
@@ -129,18 +130,8 @@ export const getPermissionStatusLabel = (status) => {
   return mapping[status] || '未申请'
 }
 
-/** 支持上传的文件扩展名 */
-const ALLOWED_FILE_TYPES = [
-  '.doc',
-  '.docx',
-  '.xls',
-  '.xlsx',
-  '.ppt',
-  '.pptx',
-  '.pdf',
-  '.txt',
-  '.csv'
-]
+/** 支持上传的文件扩展名，传给微信接口时不带点号。 */
+const ALLOWED_FILE_EXTENSIONS = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'pdf', 'txt', 'csv']
 
 /** 上传文件前的权限说明 */
 export const confirmFilePermission = () =>
@@ -154,6 +145,70 @@ export const confirmFilePermission = () =>
     })
   })
 
+/** 获取文件路径，兼容 chooseMessageFile 与 chooseFile 返回结构。 */
+const getSelectedFilePath = (item = {}) => item.tempFilePath || item.path || item.url || ''
+
+/** 获取文件名，优先使用微信返回的 name，兜底从路径解析。 */
+const getSelectedFileName = (item = {}, index = 0) => {
+  const filePath = getSelectedFilePath(item)
+  return item.name || filePath.split('/').pop() || `file-${Date.now()}-${index + 1}`
+}
+
+/** 判断用户所选文件扩展名是否在允许范围内。 */
+const isAllowedEvidenceFile = (item = {}, index = 0) => {
+  const fileName = getSelectedFileName(item, index)
+  const extension = fileName.split('.').pop()?.toLowerCase() || ''
+  return ALLOWED_FILE_EXTENSIONS.includes(extension)
+}
+
+/** 使用微信消息文件选择器选取文件，小程序端优先使用该能力。 */
+const chooseMessageEvidenceFiles = ({ count }) =>
+  new Promise((resolve, reject) => {
+    if (typeof uni.chooseMessageFile !== 'function') {
+      reject(new Error(FILE_SELECT_UNSUPPORTED))
+      return
+    }
+
+    uni.chooseMessageFile({
+      count,
+      type: 'file',
+      extension: ALLOWED_FILE_EXTENSIONS,
+      success: resolve,
+      fail: reject
+    })
+  })
+
+/** 使用通用文件选择器兜底，兼容部分非微信端或旧构建环境。 */
+const chooseSystemEvidenceFiles = ({ count }) =>
+  new Promise((resolve, reject) => {
+    if (typeof uni.chooseFile !== 'function') {
+      reject(new Error(FILE_SELECT_UNSUPPORTED))
+      return
+    }
+
+    uni.chooseFile({
+      count,
+      type: 'file',
+      extension: ALLOWED_FILE_EXTENSIONS,
+      success: resolve,
+      fail: reject
+    })
+  })
+
+/** 选择原始文件结果，微信端优先走 chooseMessageFile，非取消失败时再兜底。 */
+const chooseRawEvidenceFiles = async ({ count }) => {
+  try {
+    return await chooseMessageEvidenceFiles({ count })
+  } catch (messageFileError) {
+    const message = messageFileError?.errMsg || messageFileError?.message || ''
+    if (isCancelError(message)) {
+      throw messageFileError
+    }
+  }
+
+  return chooseSystemEvidenceFiles({ count })
+}
+
 /** 统一调起文件选择，支持 Word、Excel、PDF 等常见格式。 */
 export const chooseEvidenceFiles = async ({ count = 1, maxSize = MAX_FILE_SIZE } = {}) => {
   const confirmed = await confirmFilePermission()
@@ -162,28 +217,25 @@ export const chooseEvidenceFiles = async ({ count = 1, maxSize = MAX_FILE_SIZE }
   }
 
   try {
-    const res = await new Promise((resolve, reject) => {
-      uni.chooseFile({
-        count,
-        extensions: ALLOWED_FILE_TYPES,
-        success: resolve,
-        fail: reject
-      })
-    })
-
+    const res = await chooseRawEvidenceFiles({ count })
     const selectedFiles = res?.tempFiles || []
-    const validFiles = selectedFiles
+    const allowedFiles = selectedFiles.filter(isAllowedEvidenceFile)
+    const validFiles = allowedFiles
       .filter((item) => Number(item.size || 0) <= maxSize)
-      .map((item) => ({
-        url: item.tempFilePath || item.path,
-        name: item.name || `file-${Date.now()}`,
+      .map((item, index) => ({
+        url: getSelectedFilePath(item),
+        name: getSelectedFileName(item, index),
         size: Number(item.size || 0),
         type: 'file',
         mimeType: item.type || ''
       }))
 
-    if (validFiles.length !== selectedFiles.length) {
-      showErrorToast('部分文件超过 50MB，已自动过滤')
+    if (allowedFiles.length !== selectedFiles.length) {
+      showErrorToast('仅支持 Word、Excel、PPT、PDF、TXT、CSV 文件')
+    }
+
+    if (validFiles.length !== allowedFiles.length) {
+      showErrorToast('部分文件超过 10MB，已自动过滤')
     }
 
     return {
@@ -195,6 +247,11 @@ export const chooseEvidenceFiles = async ({ count = 1, maxSize = MAX_FILE_SIZE }
 
     if (isCancelError(message)) {
       return { files: [], status: 'cancelled' }
+    }
+
+    if (message === FILE_SELECT_UNSUPPORTED) {
+      showErrorToast('当前环境暂不支持选择文件，请改用图片上传')
+      return { files: [], status: 'unsupported' }
     }
 
     if (isPermissionDeniedError(message)) {

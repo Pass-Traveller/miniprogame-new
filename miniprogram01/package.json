@@ -10,7 +10,8 @@
     "dev:mp-weixin": "uni -p mp-weixin",
     "prebuild:mp-weixin": "node scripts/clean-mp-output.cjs build mp-weixin",
     "build:mp-weixin": "uni build -p mp-weixin",
-    "postinstall": "node scripts/patch-uview-bind.cjs",
+    "postbuild:mp-weixin": "node scripts/ensure-mp-compat-files.cjs build mp-weixin",
+    "postinstall": "node scripts/patch-uview-bind.cjs && node scripts/patch-uni-runtime.cjs",
     "lint": "eslint --ext .js,.vue --fix .",
     "format": "prettier -w ."
   },
@@ -30,6 +31,7 @@
   },
   "devDependencies": {
     "@dcloudio/vite-plugin-uni": "^3.0.0-alpha-5000720260327001",
+    "@rollup/rollup-win32-x64-msvc": "^4.60.2",
     "eslint": "^8.57.1",
     "eslint-config-prettier": "^9.1.2",
     "eslint-plugin-prettier": "^5.5.5",

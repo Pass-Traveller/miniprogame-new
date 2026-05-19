@@ -86,6 +86,15 @@ const totalPoints = computed(() => userStore.totalPoints)
 /** 标记是否已初始化积分数据，避免重复加载。 */
 let initialized = false
 
+/** 隐藏微信原生 TabBar，避免与页面自定义底部导航重复展示。 */
+const hideNativeTabBar = () => {
+  uni.hideTabBar({
+    fail: () => {
+      // 当前页面若暂未完成 TabBar 注册，静默跳过，避免影响首页主体渲染。
+    }
+  })
+}
+
 /** 进入志愿服务模块。 */
 const goVolunteer = () => {
   uni.navigateTo({ url: '/pages/volunteer/index' })
@@ -107,7 +116,7 @@ const syncPoints = () => {
 }
 
 onShow(() => {
-  uni.hideTabBar()
+  hideNativeTabBar()
   syncPoints()
 })
 </script>

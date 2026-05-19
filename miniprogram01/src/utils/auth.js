@@ -1,4 +1,4 @@
-import { showErrorToast } from '@/utils/feedback'
+import { showErrorToast, showSuccessToast } from '@/utils/feedback'
 
 const LOGIN_PAGE = '/pages/login/login'
 let interceptorReady = false
@@ -128,8 +128,59 @@ export const completeLogin = async (userStore) => {
 const resolveSubscribeStatus = (result = {}, tmplIds = []) => {
   const values = tmplIds.map((id) => result[id]).filter(Boolean)
   if (values.includes('accept')) return 'accepted'
+  if (values.includes('ban')) return 'banned'
+  if (values.includes('filter')) return 'filtered'
+  if (values.includes('reject')) return 'rejected'
   if (values.length === 0) return 'unknown'
   return 'rejected'
+}
+
+/** 按订阅结果给用户明确反馈，避免点击后无感知。 */
+const showSubscribeResult = (status) => {
+  if (status === 'accepted') {
+    showSuccessToast('已开启审核结果通知')
+    return
+  }
+
+  if (status === 'banned') {
+    uni.showModal({
+      title: '订阅未开启',
+      content: '微信通知设置暂未允许接收订阅消息，请在微信设置中开启后再试。',
+      showCancel: false
+    })
+    return
+  }
+
+  if (status === 'filtered') {
+    showErrorToast('当前订阅消息暂不可申请')
+    return
+  }
+
+  if (status === 'rejected') {
+    showErrorToast('暂未订阅，可稍后再次申请')
+    return
+  }
+
+  showErrorToast('订阅状态未更新，请稍后重试')
+}
+
+/** 根据微信接口错误返回可理解的提示文案。 */
+const resolveSubscribeFailMessage = (error = {}) => {
+  const message = error?.errMsg || error?.message || ''
+
+  if (/can only be invoked by user TAP gesture/i.test(message)) {
+    return '请点击页面按钮发起订阅'
+  }
+
+  if (/not support|unsupported/i.test(message)) {
+    return '当前微信版本暂不支持订阅消息'
+  }
+
+  if (/cancel/i.test(message)) {
+    return '已取消订阅申请'
+  }
+
+  return '订阅申请未完成，请稍后重试'
 }
 
 /** 审核结果订阅申请，提交成功后调用。 */
@@ -137,7 +188,17 @@ export const requestAuditSubscribeMessage = (userStore) => {
   const tmplIds = getSubscribeTemplateIds()
   if (tmplIds.length === 0) {
     userStore?.setSubscribeStatus('unconfigured')
-    showErrorToast('订阅模板未配置，已跳过')
+    uni.showModal({
+      title: '订阅暂不可用',
+      content: '当前环境尚未配置审核结果通知模板，请联系管理员配置后再试。',
+      showCancel: false
+    })
+    return Promise.resolve(false)
+  }
+
+  if (typeof uni.requestSubscribeMessage !== 'function') {
+    userStore?.setSubscribeStatus('unsupported')
+    showErrorToast('当前环境暂不支持订阅消息')
     return Promise.resolve(false)
   }
 
@@ -147,12 +208,13 @@ export const requestAuditSubscribeMessage = (userStore) => {
       success: (res) => {
         const status = resolveSubscribeStatus(res, tmplIds)
         userStore?.setSubscribeStatus(status)
-        showErrorToast(status === 'accepted' ? '已订阅审核通知' : '您可以稍后在“我的”页再次订阅')
+        showSubscribeResult(status)
         resolve(res)
       },
-      fail: () => {
-        userStore?.setSubscribeStatus('failed')
-        showErrorToast('订阅申请未完成')
+      fail: (error) => {
+        const failMessage = resolveSubscribeFailMessage(error)
+        userStore?.setSubscribeStatus(/cancel/i.test(error?.errMsg || '') ? 'cancelled' : 'failed')
+        showErrorToast(failMessage)
         resolve(false)
       }
     })
@@ -165,7 +227,11 @@ export const getSubscribeStatusLabel = (status) => {
     unknown: '未申请',
     accepted: '已订阅',
     rejected: '已拒绝',
+    banned: '系统关闭',
+    filtered: '不可订阅',
+    cancelled: '已取消',
     failed: '申请失败',
+    unsupported: '不支持',
     unconfigured: '模板未配置'
   }
   return mapping[status] || '未申请'

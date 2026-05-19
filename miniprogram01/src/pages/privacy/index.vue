@@ -21,9 +21,18 @@
           <text class="privacy-status-item__label">用户认证</text>
           <text class="privacy-status-item__value">{{ userStore.hasRealname ? '已完成' : '未完成' }}</text>
         </view>
-        <view class="privacy-status-item">
+        <view
+          class="privacy-status-item privacy-status-item--clickable"
+          hover-class="privacy-status-item--hover"
+          @click="handleSubscribe"
+        >
           <text class="privacy-status-item__label">消息订阅</text>
-          <text class="privacy-status-item__value">{{ subscribeStatusLabel }}</text>
+          <view class="privacy-status-item__action">
+            <text class="privacy-status-item__value">
+              {{ subscribing ? '申请中' : subscribeStatusLabel }}
+            </text>
+            <uni-icons type="right" size="16" color="#1648a5" />
+          </view>
         </view>
         <view class="privacy-status-item">
           <text class="privacy-status-item__label">相册权限</text>
@@ -70,20 +79,40 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import GlobalBottomNav from '@/components/GlobalBottomNav.vue'
 import UniIcons from '@dcloudio/uni-ui/lib/uni-icons/uni-icons.vue'
 import { useUserStore } from '@/store'
-import { getSubscribeStatusLabel } from '@/utils/auth'
+import {
+  ensureComplianceReady,
+  getSubscribeStatusLabel,
+  requestAuditSubscribeMessage
+} from '@/utils/auth'
 import { showSuccessToast } from '@/utils/feedback'
 import { getPermissionStatusLabel, openSystemPermissionSetting } from '@/utils/upload'
 
 /** 隐私设置页，集中展示隐私、订阅和系统权限状态。 */
 
 const userStore = useUserStore()
+const subscribing = ref(false)
 const subscribeStatusLabel = computed(() => getSubscribeStatusLabel(userStore.subscribeAuditResult))
 const albumPermissionLabel = computed(() => getPermissionStatusLabel(userStore.albumPermission))
 const cameraPermissionLabel = computed(() => getPermissionStatusLabel(userStore.cameraPermission))
+
+/** 用户主动点击消息订阅时，调用微信订阅消息接口并记录申请结果。 */
+const handleSubscribe = async () => {
+  if (subscribing.value) return
+  if (!ensureComplianceReady(userStore, { redirect: true, toast: true })) {
+    return
+  }
+
+  subscribing.value = true
+  try {
+    await requestAuditSubscribeMessage(userStore)
+  } finally {
+    subscribing.value = false
+  }
+}
 
 /** 打开隐私指引详情，方便用户再次查阅信息收集范围。 */
 const openGuide = () => {
@@ -144,6 +173,22 @@ const confirmCancel = () => {
   font-size: 14px;
   color: #1648a5;
   font-weight: 700;
+}
+
+.privacy-status-item--clickable {
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.privacy-status-item--hover {
+  background: #edf5ff;
+  border-color: rgba(29, 99, 216, 0.28);
+}
+
+.privacy-status-item__action {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
 }
 
 .privacy-danger-card {

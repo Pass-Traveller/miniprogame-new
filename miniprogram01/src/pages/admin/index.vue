@@ -127,6 +127,15 @@ const summary = ref({
 })
 const logs = ref([])
 
+/** 隐藏微信原生 TabBar，避免与管理端自定义底部导航重复展示。 */
+const hideNativeTabBar = () => {
+  uni.hideTabBar({
+    fail: () => {
+      // 当前页面若暂未完成 TabBar 注册，静默跳过，避免影响管理首页渲染。
+    }
+  })
+}
+
 /** 跳转到具体管理功能页。 */
 const goTo = (url) => {
   uni.navigateTo({ url })
@@ -163,11 +172,7 @@ const loadDashboard = async () => {
 
 /** 页面展示时刷新统计与日志，并同步 TabBar 选中状态。 */
 onShow(() => {
-  if (!userStore.isAdmin) {
-    uni.reLaunch({ url: '/pages/index/index' })
-    return
-  }
-  uni.hideTabBar()
+  hideNativeTabBar()
   loadDashboard()
 })
 </script>
