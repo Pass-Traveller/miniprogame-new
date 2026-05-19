@@ -6,7 +6,9 @@
         <text>登录与隐私授权</text>
       </view>
       <text class="hero-title">先完成隐私同意与用户认证，再进入首页</text>
-      <text class="hero-subtitle">整个流程分为隐私确认、用户信息填写和进入系统三个阶段，页面会根据当前状态自动切换。</text>
+      <text class="hero-subtitle"
+        >整个流程分为隐私确认、用户信息填写和进入系统三个阶段，页面会根据当前状态自动切换。</text
+      >
     </view>
 
     <view class="login-steps">
@@ -57,7 +59,9 @@
     <view v-else-if="step === 'realname'" class="themed-form-card">
       <text class="card-kicker">用户认证</text>
       <text class="card-title-main">请填写常用姓名和手机号码</text>
-      <text class="field-helper">后续将用于登录识别、积分审核与结果通知，请确保填写真实有效的信息。</text>
+      <text class="field-helper"
+        >后续将用于登录识别、积分审核与结果通知，请确保填写真实有效的信息。</text
+      >
 
       <u-form :model="form" label-position="top">
         <view class="field-shell">

@@ -6,7 +6,9 @@
         <text>我的申请</text>
       </view>
       <text class="hero-title">申报状态集中查看，驳回记录可快速重提</text>
-      <text class="hero-subtitle">统一查看志愿服务与荣誉获奖申请，便于及时了解审核进度与处理结果。</text>
+      <text class="hero-subtitle"
+        >统一查看志愿服务与荣誉获奖申请，便于及时了解审核进度与处理结果。</text
+      >
     </view>
 
     <view class="data-grid-three">
@@ -84,7 +86,9 @@
           </view>
           <view class="detail-row">
             <text class="detail-label">佐证材料</text>
-            <text class="detail-text">{{ selectedRecord.evidenceFiles.join('、') || '暂无材料' }}</text>
+            <text class="detail-text">{{
+              selectedRecord.evidenceFiles.join('、') || '暂无材料'
+            }}</text>
           </view>
           <view v-if="selectedRecord.rejectReason" class="detail-row">
             <text class="detail-label">驳回原因</text>
@@ -211,8 +215,12 @@ const loadRecords = async () => {
       fetchAllPages(fetchHonorRecords)
     ])
 
-    records.value = [...volunteerList.map(mapVolunteerRecord), ...honorList.map(mapHonorRecord)].sort(
-      (left, right) => new Date(right.submitTime || 0).getTime() - new Date(left.submitTime || 0).getTime()
+    records.value = [
+      ...volunteerList.map(mapVolunteerRecord),
+      ...honorList.map(mapHonorRecord)
+    ].sort(
+      (left, right) =>
+        new Date(right.submitTime || 0).getTime() - new Date(left.submitTime || 0).getTime()
     )
   } catch (error) {
     records.value = []

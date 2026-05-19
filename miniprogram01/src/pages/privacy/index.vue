@@ -6,7 +6,9 @@
         <text>隐私设置</text>
       </view>
       <text class="hero-title">隐私、权限与账号状态统一查看</text>
-      <text class="hero-subtitle">便于用户了解当前授权状态、查看隐私保护说明，并在需要时进行系统权限管理。</text>
+      <text class="hero-subtitle"
+        >便于用户了解当前授权状态、查看隐私保护说明，并在需要时进行系统权限管理。</text
+      >
     </view>
 
     <view class="themed-card">
@@ -15,11 +17,15 @@
       <view class="privacy-status-list">
         <view class="privacy-status-item">
           <text class="privacy-status-item__label">隐私协议</text>
-          <text class="privacy-status-item__value">{{ userStore.privacyAgreed ? '已同意' : '未同意' }}</text>
+          <text class="privacy-status-item__value">{{
+            userStore.privacyAgreed ? '已同意' : '未同意'
+          }}</text>
         </view>
         <view class="privacy-status-item">
           <text class="privacy-status-item__label">用户认证</text>
-          <text class="privacy-status-item__value">{{ userStore.hasRealname ? '已完成' : '未完成' }}</text>
+          <text class="privacy-status-item__value">{{
+            userStore.hasRealname ? '已完成' : '未完成'
+          }}</text>
         </view>
         <view
           class="privacy-status-item privacy-status-item--clickable"
@@ -49,7 +55,9 @@
       <view class="list-row-card" @click="openGuide">
         <view class="list-row-card__body">
           <text class="list-row-card__title">用户隐私保护指引</text>
-          <text class="list-row-card__desc">查看平台收集的信息范围、用途、保存期限和您的相关权利说明。</text>
+          <text class="list-row-card__desc"
+            >查看平台收集的信息范围、用途、保存期限和您的相关权利说明。</text
+          >
           <text class="list-row-card__meta">隐私说明详情</text>
         </view>
         <uni-icons type="right" size="18" color="#1648a5" />
@@ -67,7 +75,9 @@
       <view class="list-row-card privacy-danger-card" @click="confirmCancel">
         <view class="list-row-card__body">
           <text class="list-row-card__title">账号注销</text>
-          <text class="list-row-card__desc">提交注销申请后，相关个人信息会按规则进入删除或匿名化流程。</text>
+          <text class="list-row-card__desc"
+            >提交注销申请后，相关个人信息会按规则进入删除或匿名化流程。</text
+          >
           <text class="list-row-card__meta privacy-danger-card__meta">高敏感操作</text>
         </view>
         <uni-icons type="right" size="18" color="#c85b51" />
@@ -176,7 +186,9 @@ const confirmCancel = () => {
 }
 
 .privacy-status-item--clickable {
-  transition: background 0.2s ease, border-color 0.2s ease;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease;
 }
 
 .privacy-status-item--hover {

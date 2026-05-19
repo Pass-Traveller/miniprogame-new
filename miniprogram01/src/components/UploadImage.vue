@@ -23,9 +23,19 @@
     </view>
 
     <view class="upload-actions">
-      <button class="upload-btn" :disabled="isMaxReached" @click="handleChoose('album')">从相册选择</button>
-      <button class="upload-btn" :disabled="isMaxReached" @click="handleChoose('camera')">拍照上传</button>
-      <button class="upload-btn upload-btn--accent" :disabled="isMaxReached" @click="handleChooseFile">上传文件</button>
+      <button class="upload-btn" :disabled="isMaxReached" @click="handleChoose('album')">
+        从相册选择
+      </button>
+      <button class="upload-btn" :disabled="isMaxReached" @click="handleChoose('camera')">
+        拍照上传
+      </button>
+      <button
+        class="upload-btn upload-btn--accent"
+        :disabled="isMaxReached"
+        @click="handleChooseFile"
+      >
+        上传文件
+      </button>
     </view>
 
     <view class="upload-status-card">

@@ -6,7 +6,9 @@
         <text>志愿记录</text>
       </view>
       <text class="hero-title">{{ pageTitle }}</text>
-      <text class="hero-subtitle">支持按年度查看该模块下的打卡记录，点击单条可查看审核状态和详细内容。</text>
+      <text class="hero-subtitle"
+        >支持按年度查看该模块下的打卡记录，点击单条可查看审核状态和详细内容。</text
+      >
     </view>
 
     <view class="themed-card record-filter-card">
@@ -18,11 +20,18 @@
     </view>
 
     <view v-if="records.length > 0" class="simple-list">
-      <view v-for="record in records" :key="record.id" class="list-row-card" @click="showDetail(record)">
+      <view
+        v-for="record in records"
+        :key="record.id"
+        class="list-row-card"
+        @click="showDetail(record)"
+      >
         <view class="list-row-card__body">
           <view class="record-card__head">
             <text class="list-row-card__title">{{ record.title }}</text>
-            <text class="record-card__points">+ {{ record.approvedPoints || record.points || 0 }} 分</text>
+            <text class="record-card__points"
+              >+ {{ record.approvedPoints || record.points || 0 }} 分</text
+            >
           </view>
           <text class="list-row-card__desc">{{ record.activityTime }}</text>
           <text class="list-row-card__meta">{{ record.statusText }}</text>
@@ -35,10 +44,17 @@
         <uni-icons type="calendar" size="30" color="#1648a5" />
       </view>
       <text class="empty-state-pro__title">当前年度暂无打卡记录</text>
-      <text class="empty-state-pro__desc">可以切换其他年度查看，或返回上一步继续发起新的志愿服务申报。</text>
+      <text class="empty-state-pro__desc"
+        >可以切换其他年度查看，或返回上一步继续发起新的志愿服务申报。</text
+      >
     </view>
 
-    <u-picker :show="showYearPicker" :columns="[yearOptions]" @confirm="onYearConfirm" @cancel="showYearPicker = false" />
+    <u-picker
+      :show="showYearPicker"
+      :columns="[yearOptions]"
+      @confirm="onYearConfirm"
+      @cancel="showYearPicker = false"
+    />
 
     <view v-if="selectedRecord" class="detail-mask" @click.self="closeDetail">
       <view class="detail-panel">
@@ -64,7 +80,10 @@
             <text class="detail-label">驳回原因</text>
             <text class="detail-text warning-text">{{ selectedRecord.rejectReason }}</text>
           </view>
-          <view v-if="selectedRecord.evidenceFiles && selectedRecord.evidenceFiles.length" class="detail-row">
+          <view
+            v-if="selectedRecord.evidenceFiles && selectedRecord.evidenceFiles.length"
+            class="detail-row"
+          >
             <text class="detail-label">佐证材料</text>
             <text class="detail-text">{{ selectedRecord.evidenceFiles.join('、') }}</text>
           </view>

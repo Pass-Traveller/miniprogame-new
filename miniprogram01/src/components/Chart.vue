@@ -7,8 +7,8 @@
 
     <view v-show="hasData" class="chart-canvas-wrap">
       <canvas
-        type="2d"
         id="trendChart"
+        type="2d"
         canvas-id="trendChart"
         class="chart-canvas"
         :style="{ width: '100%', height: '500rpx' }"

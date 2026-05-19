@@ -1283,7 +1283,11 @@ async function resolveImportTargetUser(row = {}) {
   const phone = String(pickValue(row, ['phone', 'mobile', '手机号', '手机号码'])).trim()
 
   if (realName && phone) {
-    const userByNamePhoneRes = await db.collection('users').where({ realName, phone }).limit(2).get()
+    const userByNamePhoneRes = await db
+      .collection('users')
+      .where({ realName, phone })
+      .limit(2)
+      .get()
     if ((userByNamePhoneRes.data || []).length === 1) {
       return userByNamePhoneRes.data[0]
     }
@@ -1795,10 +1799,7 @@ async function adminImport(data = {}, openid) {
           userPatch.phone = rowPhone
         }
 
-        await db
-          .collection('users')
-          .doc(targetUser._id)
-          .update({ data: userPatch })
+        await db.collection('users').doc(targetUser._id).update({ data: userPatch })
         await db.collection('points_logs').add({
           data: {
             userId: targetUser._id,
@@ -1891,10 +1892,7 @@ async function adminImport(data = {}, openid) {
           userPatch.phone = rowPhone
         }
 
-        await db
-          .collection('users')
-          .doc(targetUser._id)
-          .update({ data: userPatch })
+        await db.collection('users').doc(targetUser._id).update({ data: userPatch })
         await db.collection('points_logs').add({
           data: {
             userId: targetUser._id,
