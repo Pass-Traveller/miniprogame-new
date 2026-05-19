@@ -169,6 +169,7 @@ import { onShow } from '@dcloudio/uni-app'
 import { computed, reactive, ref } from 'vue'
 import { fetchAuditList, submitAudit } from '@/api/admin'
 import GlobalBottomNav from '@/components/GlobalBottomNav.vue'
+import { useUserStore } from '@/store'
 import { unwrapApiData, resolveApiErrorMessage } from '@/utils/api'
 import { showErrorToast, showSuccessToast } from '@/utils/feedback'
 import { honorLevels } from '@/utils/rules'
@@ -417,6 +418,10 @@ const rejectSelected = async () => {
 }
 
 onShow(() => {
+  if (!userStore.isAdmin) {
+    uni.reLaunch({ url: '/pages/index/index' })
+    return
+  }
   refreshRecords()
 })
 </script>

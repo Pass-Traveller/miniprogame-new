@@ -304,7 +304,10 @@ const disableTargetUser = async (item) => {
 }
 
 onShow(() => {
-  uni.hideTabBar()
+  if (!userStore.isAdmin) {
+    uni.reLaunch({ url: '/pages/index/index' })
+    return
+  }
   roleFilter.value = 'all'
   statusFilter.value = 'all'
   refreshUsers()

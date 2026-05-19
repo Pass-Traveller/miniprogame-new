@@ -29,7 +29,7 @@
       </view>
     </view>
 
-    <view class="glass-card">
+    <view v-if="chartReady" class="glass-card">
       <Chart :refresh-key="chartRefreshKey" :trend-data="trendData" />
     </view>
 
@@ -83,7 +83,7 @@
 </template>
 
 <script setup>
-import { onShow } from '@dcloudio/uni-app'
+import { onShow, onLoad } from '@dcloudio/uni-app'
 import { ref } from 'vue'
 import { fetchUserProfile } from '@/api/user'
 import { useUserStore } from '@/store'
@@ -102,6 +102,7 @@ const isAdminRole = (role) => role === 'admin' || role === 'super-admin'
 const userStore = useUserStore()
 const chartRefreshKey = ref(0)
 const trendData = ref([])
+const chartReady = ref(false)
 
 /** 跳转到指定功能页。 */
 const goTo = (url) => {
@@ -171,6 +172,10 @@ const syncProfile = async () => {
     showErrorToast(resolveApiErrorMessage(error, '个人信息加载失败，请稍后重试'))
   }
 }
+
+onLoad(() => {
+  chartReady.value = true
+})
 
 onShow(() => {
   uni.hideTabBar()

@@ -5,19 +5,12 @@
         <uni-icons type="staff-filled" size="16" color="#ffffff" />
         <text>银才荟适老服务平台</text>
       </view>
-      <text class="hero-title">欢迎使用国网退休人员积分申报平台</text>
-      <text class="hero-subtitle">
-        提供志愿服务、荣誉获奖一站式申报与积分查看，让操作更清晰、填写更安心。
-      </text>
+      <text class="hero-title">国网退休人员积分申报平台</text>
 
       <view class="hero-metrics">
         <view class="hero-pill">
           <text class="hero-pill__label">当前总积分</text>
           <text class="hero-pill__value">{{ totalPoints }}</text>
-        </view>
-        <view class="hero-pill">
-          <text class="hero-pill__label">服务对象</text>
-          <text class="hero-pill__value hero-pill__value--small">退休人员</text>
         </view>
       </view>
     </view>

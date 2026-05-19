@@ -128,6 +128,7 @@ import { onShow } from '@dcloudio/uni-app'
 import { reactive, ref, watch, computed } from 'vue'
 import { exportExcel, fetchAuditList } from '@/api/admin'
 import GlobalBottomNav from '@/components/GlobalBottomNav.vue'
+import { useUserStore } from '@/store'
 import { unwrapApiData, resolveApiErrorMessage } from '@/utils/api'
 import { showErrorToast, showSuccessToast } from '@/utils/feedback'
 import UniIcons from '@dcloudio/uni-ui/lib/uni-icons/uni-icons.vue'
@@ -298,6 +299,10 @@ watch(
 )
 
 onShow(() => {
+  if (!userStore.isAdmin) {
+    uni.reLaunch({ url: '/pages/index/index' })
+    return
+  }
   loadPreview()
 })
 </script>

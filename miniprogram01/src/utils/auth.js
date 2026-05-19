@@ -21,6 +21,8 @@ const getCurrentRoute = () => {
 /** 判断当前跳转目标是否为登录页。 */
 const isLoginRoute = (url = '') => url.split('?')[0] === LOGIN_PAGE
 
+const ADMIN_ROUTE_PREFIX = '/pages/admin/'
+
 /** 在未完成合规前，统一跳回登录页。 */
 const redirectToLogin = (message = '') => {
   if (message) {
@@ -64,11 +66,16 @@ export const setupComplianceInterceptors = (userStore) => {
     uni.addInterceptor(method, {
       invoke(args) {
         const url = args?.url || ''
-        if (
-          !url ||
-          isLoginRoute(url) ||
-          ensureComplianceReady(userStore, { redirect: false, toast: false })
-        ) {
+        if (!url || isLoginRoute(url)) {
+          return args
+        }
+
+        if (url.startsWith(ADMIN_ROUTE_PREFIX) && !userStore.isAdmin) {
+          setTimeout(() => showErrorToast('无权访问管理页面'), 0)
+          return false
+        }
+
+        if (ensureComplianceReady(userStore, { redirect: false, toast: false })) {
           return args
         }
         setTimeout(() => redirectToLogin('请先完成隐私同意与用户认证'), 0)

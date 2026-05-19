@@ -169,6 +169,10 @@ const loadDashboard = async () => {
 
 /** 页面展示时刷新统计与日志，并同步 TabBar 选中状态。 */
 onShow(() => {
+  if (!userStore.isAdmin) {
+    uni.reLaunch({ url: '/pages/index/index' })
+    return
+  }
   uni.hideTabBar()
   loadDashboard()
 })
