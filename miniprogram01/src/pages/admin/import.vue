@@ -6,9 +6,6 @@
         <text>批量数据导入</text>
       </view>
       <text class="hero-title">先看模板字段，再提交 Excel 导入任务</text>
-      <text class="hero-subtitle"
-        >适用于管理员批量录入志愿服务和荣誉获奖数据，导入后可在下方查看历史记录。</text
-      >
     </view>
 
     <view class="simple-list">
@@ -111,12 +108,39 @@ const templateFields = {
 const history = ref([])
 const currentFileName = ref('')
 
-/** 展示模板字段说明，方便后端联调时核对 Excel 结构。 */
+/** 生成 CSV 模板文件并打开下载。 */
 const downloadTemplate = () => {
-  uni.showModal({
-    title: '模板字段说明',
-    content: `志愿服务：${templateFields.volunteer.join('、')}\n\n荣誉获奖：${templateFields.honor.join('、')}`,
-    showCancel: false
+  const csvContent =
+    '志愿服务模板\n' +
+    templateFields.volunteer.join(',') +
+    '\n\n荣誉获奖模板\n' +
+    templateFields.honor.join(',')
+
+  try {
+    const fs = uni.getFileSystemManager()
+    const filePath = `${uni.env.USER_DATA_PATH}/import_template.csv`
+    fs.writeFile({
+      filePath,
+      data: csvContent,
+      encoding: 'utf-8',
+      success: () => {
+        uni.openDocument({
+          filePath,
+          showMenu: true,
+          fail: () => fallbackClipboard(csvContent)
+        })
+      },
+      fail: () => fallbackClipboard(csvContent)
+    })
+  } catch {
+    fallbackClipboard(csvContent)
+  }
+}
+
+const fallbackClipboard = (content) => {
+  uni.setClipboardData({
+    data: content,
+    success: () => showSuccessToast('模板内容已复制到剪贴板')
   })
 }
 

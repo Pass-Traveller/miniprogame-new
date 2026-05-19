@@ -5,10 +5,6 @@
         <uni-icons type="person-filled" size="16" color="#ffffff" />
         <text>我的积分中心</text>
       </view>
-      <text class="hero-title">积分清晰可见，常用功能一目了然</text>
-      <text class="hero-subtitle"
-        >支持查看总积分、年度趋势与个人资料入口，便于日常查询和后续申报。</text
-      >
 
       <view class="mine-score-board">
         <view class="mine-score-board__main">
@@ -29,7 +25,7 @@
       </view>
     </view>
 
-    <view v-if="chartReady" class="glass-card">
+    <view v-show="chartReady" class="glass-card">
       <Chart :refresh-key="chartRefreshKey" :trend-data="trendData" />
     </view>
 
@@ -42,9 +38,6 @@
       <view class="list-row-card" @click="goTo('/pages/application/index')">
         <view class="list-row-card__body">
           <text class="list-row-card__title">我的申请</text>
-          <text class="list-row-card__desc"
-            >查看待审核、已通过和已驳回记录，及时掌握处理进度。</text
-          >
           <text class="list-row-card__meta">申报进度查询</text>
         </view>
         <uni-icons type="right" size="18" color="#1648a5" />
@@ -53,7 +46,6 @@
       <view class="list-row-card" @click="showProfile">
         <view class="list-row-card__body">
           <text class="list-row-card__title">个人信息</text>
-          <text class="list-row-card__desc">查看脱敏后的姓名、手机号等信息，保障隐私安全。</text>
           <text class="list-row-card__meta">敏感信息已脱敏</text>
         </view>
         <uni-icons type="right" size="18" color="#1648a5" />
@@ -62,7 +54,6 @@
       <view class="list-row-card" @click="goTo('/pages/privacy/index')">
         <view class="list-row-card__body">
           <text class="list-row-card__title">隐私设置</text>
-          <text class="list-row-card__desc">查看授权与隐私说明，确保小程序使用更放心。</text>
           <text class="list-row-card__meta">授权与说明</text>
         </view>
         <uni-icons type="right" size="18" color="#1648a5" />
@@ -71,7 +62,6 @@
       <view class="list-row-card list-row-card--logout" @click="logout">
         <view class="list-row-card__body">
           <text class="list-row-card__title">退出登录</text>
-          <text class="list-row-card__desc">退出当前账号并返回登录与隐私授权页面。</text>
           <text class="list-row-card__meta list-row-card__meta--danger">安全退出</text>
         </view>
         <uni-icons type="right" size="18" color="#c85b51" />

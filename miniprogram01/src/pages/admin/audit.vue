@@ -6,9 +6,6 @@
         <text>数据审核</text>
       </view>
       <text class="hero-title">待审核数据集中处理，支持单条与批量操作</text>
-      <text class="hero-subtitle"
-        >按页签查看志愿服务、荣誉获奖和历史处理记录，提高审核效率与准确性。</text
-      >
     </view>
 
     <view class="themed-card tabs-shell">

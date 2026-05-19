@@ -5,10 +5,7 @@
         <uni-icons type="heart-filled" size="16" color="#ffffff" />
         <text>志愿服务积分申报</text>
       </view>
-      <text class="hero-title">五类服务模块，按实际参与内容申报</text>
-      <text class="hero-subtitle"
-        >围绕红色传承、基层治理、企业服务、以老助老等方向开展活动，按规则提交积分。</text
-      >
+      <text class="hero-title">五类服务模块\n按实际参与内容申报</text>
     </view>
 
     <view class="section-heading">
