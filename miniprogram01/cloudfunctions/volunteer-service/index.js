@@ -691,7 +691,7 @@ async function getUserRole(openid) {
 async function ensureAdmin(openid) {
   const role = await getUserRole(openid)
   if (!isAdminLikeRole(role)) {
-    return { code: 403, message: '浠呯鐞嗗憳鍙墽琛岃鎿嶄綔' }
+    return { code: 403, message: '仅管理员可执行该操作' }
   }
 
   return null
@@ -973,7 +973,7 @@ async function cancelSignup(activityId, openid) {
   } catch (err) {
     await safeRollback(transaction)
     console.error('[cancelSignup] error:', err)
-    return { code: 500, message: '鍙栨秷鎶ュ悕澶辫触锛岃绋嶅悗閲嶈瘯' }
+    return { code: 500, message: '取消报名失败，请稍后重试' }
   }
 }
 
@@ -1252,7 +1252,7 @@ function buildReportRows(stats) {
   const rows = [
     ['指标', '数值'],
     ['总服务时长(小时)', stats.totalHours],
-    ['鍙備笌娲诲姩娆℃暟', stats.totalCount],
+    ['参与活动次数', stats.totalCount],
     ['鏈嶅姟浜烘暟', stats.totalServed]
   ]
 
@@ -2848,7 +2848,7 @@ async function adjustUserPoints(data = {}, openid) {
     const nextPoints = currentPoints + amount
     if (nextPoints < 0) {
       await safeRollback(transaction)
-      return { code: 400, message: '鎵ｅ噺鍚庣Н鍒嗕笉鍙负璐熸暟' }
+      return { code: 400, message: '扣减后积分不可为负数' }
     }
 
     await transaction
@@ -2879,7 +2879,7 @@ async function adjustUserPoints(data = {}, openid) {
   } catch (err) {
     await safeRollback(transaction)
     console.error('[adjustUserPoints] error:', err)
-    return { code: 500, message: '鎿嶄綔澶辫触锛岃绋嶅悗閲嶈瘯' }
+    return { code: 500, message: '操作失败，请稍后重试' }
   }
 }
 
