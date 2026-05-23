@@ -5,10 +5,7 @@
         <uni-icons type="gear-filled" size="16" color="#ffffff" />
         <text>管理后台</text>
       </view>
-      <text class="hero-title">待办优先呈现，审核与数据处理更高效</text>
-      <text class="hero-subtitle"
-        >集中查看待审核数量、已处理情况和最近申报动态，便于管理员快速进入下一步操作。</text
-      >
+      <text class="hero-title">审核与数据处理</text>
     </view>
 
     <view class="data-grid-two">
@@ -56,7 +53,6 @@
       <view class="list-row-card" @click="goTo('/pages/admin/import')">
         <view class="list-row-card__body">
           <text class="list-row-card__title">批量数据导入</text>
-          <text class="list-row-card__desc">查看模板字段、选择 Excel 文件并提交导入任务。</text>
           <text class="list-row-card__meta">支持模板字段预览</text>
         </view>
         <uni-icons type="right" size="18" color="#1648a5" />
@@ -65,7 +61,6 @@
       <view class="list-row-card" @click="goTo('/pages/admin/audit')">
         <view class="list-row-card__body">
           <text class="list-row-card__title">数据审核</text>
-          <text class="list-row-card__desc">处理志愿服务与荣誉获奖申报，支持单条和批量操作。</text>
           <text class="list-row-card__meta">审核队列管理</text>
         </view>
         <uni-icons type="right" size="18" color="#1648a5" />
@@ -74,7 +69,6 @@
       <view class="list-row-card" @click="goTo('/pages/admin/export')">
         <view class="list-row-card__body">
           <text class="list-row-card__title">全量数据导出</text>
-          <text class="list-row-card__desc">按条件筛选并导出真实审核数据，便于统计与归档。</text>
           <text class="list-row-card__meta">支持筛选预览</text>
         </view>
         <uni-icons type="right" size="18" color="#1648a5" />

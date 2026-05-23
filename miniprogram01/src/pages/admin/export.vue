@@ -6,9 +6,6 @@
         <text>全量数据导出</text>
       </view>
       <text class="hero-title">先筛选、后预览，再执行 Excel 导出</text>
-      <text class="hero-subtitle"
-        >支持按年度、模块、审核状态和用户进行筛选，减少导出结果重复核对的工作量。</text
-      >
     </view>
 
     <view class="themed-form-card">
@@ -126,8 +123,9 @@
 <script setup>
 import { onShow } from '@dcloudio/uni-app'
 import { reactive, ref, watch, computed } from 'vue'
-import { exportExcel, fetchAuditList } from '@/api/admin'
+import { exportExcel, fetchAuditList, fetchAdminUsers } from '@/api/admin'
 import GlobalBottomNav from '@/components/GlobalBottomNav.vue'
+import { useUserStore } from '@/store'
 import { unwrapApiData, resolveApiErrorMessage } from '@/utils/api'
 import { showErrorToast, showSuccessToast } from '@/utils/feedback'
 import UniIcons from '@dcloudio/uni-ui/lib/uni-icons/uni-icons.vue'
@@ -169,8 +167,32 @@ const moduleOptions = [
 /** 审核状态选项。 */
 const statusOptions = ['待审核', '已审核', '已驳回']
 
-/** 用户选项，当前使用前端占位数据。 */
-const userOptions = ['全部用户', '张三', '李四', '王五', '赵六']
+/** 用户选项，从接口动态拉取。 */
+const userOptions = ref(['全部用户'])
+
+/** 拉取用户列表用于导出筛选。 */
+const loadUserOptions = async () => {
+  try {
+    const list = []
+    let page = 1
+    const pageSize = 50
+    let total = 0
+
+    do {
+      const data = unwrapApiData(await fetchAdminUsers({ page, pageSize }), { list: [], total: 0 })
+      const current = Array.isArray(data.list) ? data.list : []
+      total = Number(data.total || 0)
+      list.push(...current)
+      if (current.length < pageSize) break
+      page += 1
+    } while (list.length < total)
+
+    const names = list.map((item) => item.realName || '').filter(Boolean)
+    userOptions.value = ['全部用户', ...names]
+  } catch {
+    userOptions.value = ['全部用户']
+  }
+}
 
 /** 标准化状态输入，兼容中文与英文筛选。 */
 const normalizeStatus = (value = '') => {
@@ -298,6 +320,11 @@ watch(
 )
 
 onShow(() => {
+  if (!userStore.isAdmin) {
+    uni.reLaunch({ url: '/pages/index/index' })
+    return
+  }
+  loadUserOptions()
   loadPreview()
 })
 </script>

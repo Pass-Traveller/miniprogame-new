@@ -6,9 +6,6 @@
         <text>批量数据导入</text>
       </view>
       <text class="hero-title">先看模板字段，再提交 Excel 导入任务</text>
-      <text class="hero-subtitle"
-        >适用于管理员批量录入志愿服务和荣誉获奖数据，导入后可在下方查看历史记录。</text
-      >
     </view>
 
     <view class="simple-list">
@@ -16,7 +13,8 @@
         <text class="card-kicker">导入说明</text>
         <text class="card-title-main">上传前请先确认字段格式一致</text>
         <text class="card-text-main"
-          >请选择 `.xlsx` 或 `.xls` 文件，导入匹配规则为“姓名 + 手机号”，建议先下载模板说明后再导入。</text
+          >请选择 `.xlsx` 或 `.xls` 文件，导入匹配规则为“姓名 +
+          手机号”，建议先下载模板说明后再导入。</text
         >
       </view>
 
@@ -110,8 +108,7 @@ const templateFields = {
 }
 const history = ref([])
 const currentFileName = ref('')
-
-/** 展示模板字段说明，方便后端联调时核对 Excel 结构。 */
+/** 生成 CSV 模板文件并打开下载。 */
 const downloadTemplate = () => {
   uni.showModal({
     title: '模板字段说明',

@@ -6,7 +6,9 @@
         <text>登录与隐私授权</text>
       </view>
       <text class="hero-title">先完成隐私同意与用户认证，再进入首页</text>
-      <text class="hero-subtitle">整个流程分为隐私确认、用户信息填写和进入系统三个阶段，页面会根据当前状态自动切换。</text>
+      <text class="hero-subtitle"
+        >整个流程分为隐私确认、用户信息填写和进入系统三个阶段，页面会根据当前状态自动切换。</text
+      >
     </view>
 
     <view class="login-steps">
@@ -32,7 +34,7 @@
       <view class="login-info-list">
         <view class="login-info-item">
           <text class="login-info-item__title">我们收集的信息</text>
-          <text class="login-info-item__desc">姓名、手机号码、志愿服务与荣誉申报数据。</text>
+          <text class="login-info-item__desc">昵称、密码、志愿服务与荣誉申报数据。</text>
         </view>
         <view class="login-info-item">
           <text class="login-info-item__title">使用目的</text>
@@ -56,17 +58,19 @@
 
     <view v-else-if="step === 'realname'" class="themed-form-card">
       <text class="card-kicker">用户认证</text>
-      <text class="card-title-main">请填写常用姓名和手机号码</text>
-      <text class="field-helper">后续将用于登录识别、积分审核与结果通知，请确保填写真实有效的信息。</text>
+      <text class="card-title-main">请填写昵称和密码</text>
+      <text class="field-helper"
+        >后续将用于登录识别、积分审核与结果通知，请确保填写真实有效的信息。</text
+      >
 
       <u-form :model="form" label-position="top">
         <view class="field-shell">
-          <text class="field-label">姓名</text>
-          <u-input v-model="form.name" placeholder="请输入姓名" />
+          <text class="field-label">昵称</text>
+          <u-input v-model="form.name" placeholder="请输入昵称" />
         </view>
         <view class="field-shell">
-          <text class="field-label">手机号码</text>
-          <u-input v-model="form.phone" placeholder="请输入手机号码" />
+          <text class="field-label">密码</text>
+          <u-input v-model="form.phone" placeholder="请输入密码" />
         </view>
       </u-form>
 
@@ -227,7 +231,7 @@ const handleSubmit = async () => {
     return
   }
   if (!isPhoneValid(form.phone)) {
-    showErrorToast('手机号码格式不正确')
+    showErrorToast('密码格式不正确')
     return
   }
 

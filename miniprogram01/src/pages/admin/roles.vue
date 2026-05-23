@@ -304,6 +304,10 @@ const disableTargetUser = async (item) => {
 }
 
 onShow(() => {
+  if (!userStore.isAdmin) {
+    uni.reLaunch({ url: '/pages/index/index' })
+    return
+  }
   roleFilter.value = 'all'
   statusFilter.value = 'all'
   refreshUsers()

@@ -5,10 +5,7 @@
         <uni-icons type="medal" size="16" color="#ffffff" />
         <text>荣誉获奖积分申报</text>
       </view>
-      <text class="hero-title">按荣誉级别提交材料，系统自动填充积分</text>
-      <text class="hero-subtitle"
-        >适用于国家级、省部级、厅局级、厂处级荣誉申报，填写信息后可直接进入审核流程。</text
-      >
+      <text class="hero-title">按荣誉级别提交材料\n系统自动填充积分</text>
     </view>
 
     <view class="section-heading">
