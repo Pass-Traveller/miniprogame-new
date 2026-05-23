@@ -33,5 +33,6 @@
     "appid": "wx2b8ff48151cc1a2b",
     "editorSetting": {},
     "libVersion": "3.15.1",
-    "simulatorPluginLibVersion": {}
+    "simulatorPluginLibVersion": {},
+    "cloudfunctionTemplateRoot": "cloudfunctionTemplate/"
 }

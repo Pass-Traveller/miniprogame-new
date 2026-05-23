@@ -15,6 +15,51 @@ const ADMIN_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000
 const ROLE_SUPER_ADMIN = 'super-admin'
 const ROLE_ADMIN = 'admin'
 const ROLE_MEMBER = 'member'
+const TEST_DATA_TEXT_PATTERN = /(测试|调试|示例|样例|演示|游客|mock|demo|test|dummy|sample|seed)/i
+const TEST_OPENID_PATTERN = /^(test|mock|demo|debug|sample|dummy|visitor|tourist)[-_]*/i
+const TEST_PHONE_VALUES = new Set([
+  '00000000000',
+  '11111111111',
+  '12345678901',
+  '13000000000',
+  '13100000000',
+  '13800138000',
+  '18888888888',
+  '19999999999'
+])
+const TEST_FLAG_FIELDS = [
+  'isTest',
+  'isTestData',
+  'testData',
+  'debugOnly',
+  'mock',
+  'isMock',
+  'demo',
+  'isDemo',
+  'sample',
+  'seed'
+]
+const TEST_TEXT_FIELDS = [
+  'realName',
+  'userName',
+  'name',
+  'nickName',
+  'phone',
+  'title',
+  'activityName',
+  'activityCategory',
+  'activityLocation',
+  'remark',
+  'content',
+  'honorTitle',
+  'honorName',
+  'awardOrganization',
+  'organization',
+  'description',
+  'source',
+  'dataSource',
+  'importBatchName'
+]
 
 const HONOR_LEVEL_POINTS_MAP = {
   national: 20,
@@ -140,7 +185,7 @@ exports.main = async (event = {}) => {
       case 'getActivities':
         return await getActivities(data, effectiveOpenid)
       case 'getActivityById':
-        return await getActivityById(data.id, effectiveOpenid)
+        return await getActivityById(data.id, effectiveOpenid, data)
       case 'publishActivity':
         return await publishActivity(data, effectiveOpenid)
 
@@ -490,6 +535,115 @@ function normalizeVolunteerDeclarationPayload(data = {}) {
   }
 }
 
+/** 解析布尔开关，兼容小程序请求中常见的字符串与数字写法。 */
+function isTruthyFlag(value) {
+  if (value === true || value === 1) return true
+  const text = String(value == null ? '' : value)
+    .trim()
+    .toLowerCase()
+  return ['1', 'true', 'yes', 'y', 'on', 'debug'].includes(text)
+}
+
+/** 判断本次请求是否显式开启调试数据查看。 */
+function isDebugModeRequested(params = {}) {
+  return (
+    isTruthyFlag(params.debug) ||
+    isTruthyFlag(params.debugMode) ||
+    isTruthyFlag(params.showTestData) ||
+    isTruthyFlag(params.includeTestData)
+  )
+}
+
+/** 按 A 方案解析调试上下文：只有管理员显式 debug=true 才能查看测试数据。 */
+async function resolveDebugContext(params = {}, openid = '') {
+  const debugRequested = isDebugModeRequested(params)
+  if (!debugRequested) {
+    return { debugRequested: false, includeTestData: false, role: ROLE_MEMBER }
+  }
+
+  const role = await getUserRole(openid)
+  return {
+    debugRequested: true,
+    includeTestData: isAdminLikeRole(role),
+    role
+  }
+}
+
+/** 判断文本是否带有测试/演示特征，用于识别未显式打标的测试数据。 */
+function hasTestText(value) {
+  if (value == null) return false
+  return TEST_DATA_TEXT_PATTERN.test(String(value))
+}
+
+/** 判断手机号是否为常见测试号码。 */
+function isTestPhone(value) {
+  const digits = String(value || '').replace(/\D/g, '')
+  return digits ? TEST_PHONE_VALUES.has(digits) : false
+}
+
+/** 判断单个对象是否带有测试数据特征。 */
+function hasTestMarker(source = {}) {
+  if (!source || typeof source !== 'object') return false
+
+  if (TEST_FLAG_FIELDS.some((field) => isTruthyFlag(source[field]))) {
+    return true
+  }
+
+  const openid = String(source._openid || source.openid || source.userOpenid || '').trim()
+  if (openid && TEST_OPENID_PATTERN.test(openid)) {
+    return true
+  }
+
+  if (isTestPhone(source.phone || source.mobile || source['手机号'] || source['手机号码'])) {
+    return true
+  }
+
+  return TEST_TEXT_FIELDS.some((field) => hasTestText(source[field]))
+}
+
+/** 综合业务记录与所属用户识别测试数据，普通模式下统一隐藏。 */
+function isTestDataItem(item = {}, owner = null) {
+  return hasTestMarker(item) || hasTestMarker(owner)
+}
+
+/** 普通模式过滤测试数据，debug 模式保留并打标，便于管理员排查。 */
+function filterVisibleItems(items = [], debugContext = {}, resolveOwner = null) {
+  const list = Array.isArray(items) ? items : []
+  if (debugContext.includeTestData) {
+    return list.map((item) => {
+      const owner = typeof resolveOwner === 'function' ? resolveOwner(item) : null
+      const isTestData = isTestDataItem(item, owner)
+      return isTestData ? { ...item, isTestData: true } : item
+    })
+  }
+
+  return list.filter((item) => {
+    const owner = typeof resolveOwner === 'function' ? resolveOwner(item) : null
+    return !isTestDataItem(item, owner)
+  })
+}
+
+/** 按时间字段排序并分页，确保先过滤测试数据再给前端返回 total。 */
+function paginateItems(items = [], pageInfo = {}, sortField = '') {
+  const list = Array.isArray(items) ? [...items] : []
+  const { page, pageSize, skip } = pageInfo
+
+  if (sortField) {
+    list.sort((left, right) => {
+      const leftTime = parseDateOrNull(left[sortField])?.getTime() || 0
+      const rightTime = parseDateOrNull(right[sortField])?.getTime() || 0
+      return rightTime - leftTime
+    })
+  }
+
+  return {
+    list: list.slice(skip, skip + pageSize),
+    total: list.length,
+    page,
+    pageSize
+  }
+}
+
 /** 格式化时间为 YYYY-MM-DD，兼容 Date/字符串。 */
 function formatYmd(dateValue) {
   const date = parseDateOrNull(dateValue)
@@ -575,6 +729,7 @@ async function getActivities(params = {}, openid) {
   const { page, pageSize, skip } = normalizePagination(params.page, params.pageSize)
   const { keyword, location } = params
   const { startAt, endAt } = resolveQueryWindow(params)
+  const debugContext = await resolveDebugContext(params, openid)
 
   const matchQuery = {}
 
@@ -593,17 +748,17 @@ async function getActivities(params = {}, openid) {
     matchQuery.startTime = _.lte(endAt)
   }
 
-  const countRes = await db.collection('activities').where(matchQuery).count()
-
-  const activityRes = await db
-    .collection('activities')
-    .where(matchQuery)
-    .orderBy('createdAt', 'desc')
-    .skip(skip)
-    .limit(pageSize)
-    .get()
-
-  const activities = activityRes.data || []
+  const allActivities = await fetchAllByWhere('activities', matchQuery, {
+    orderByField: 'createdAt',
+    orderDirection: 'desc',
+    pageSize: 100
+  })
+  const pageData = paginateItems(filterVisibleItems(allActivities, debugContext), {
+    page,
+    pageSize,
+    skip
+  })
+  const activities = pageData.list
   let signupActivitySet = new Set()
 
   if (activities.length > 0) {
@@ -626,14 +781,14 @@ async function getActivities(params = {}, openid) {
     code: 0,
     data: {
       list,
-      total: countRes.total,
+      total: pageData.total,
       page,
       pageSize
     }
   }
 }
 
-async function getActivityById(id, openid) {
+async function getActivityById(id, openid, params = {}) {
   if (!id) {
     return { code: 400, message: '缂哄皯娲诲姩 ID' }
   }
@@ -644,14 +799,24 @@ async function getActivityById(id, openid) {
   }
 
   const activity = activityRes.data[0]
+  const debugContext = await resolveDebugContext(params, openid)
+  if (isTestDataItem(activity) && !debugContext.includeTestData) {
+    return { code: 404, message: '' }
+  }
 
-  const [signupRes, checkinRes] = await Promise.all([
+  const [signupRes, checkinRecordRes, currentUser] = await Promise.all([
     db.collection('signups').where({ activityId: id, _openid: openid }).count(),
-    db.collection('records').where({ activityId: id, _openid: openid }).count()
+    db.collection('records').where({ activityId: id, _openid: openid }).limit(100).get(),
+    getUserByOpenid(openid)
   ])
+  const visibleCheckinRecords = filterVisibleItems(
+    checkinRecordRes.data || [],
+    debugContext,
+    () => currentUser
+  )
 
   activity.isSignedUp = signupRes.total > 0
-  activity.isCheckedIn = checkinRes.total > 0
+  activity.isCheckedIn = visibleCheckinRecords.length > 0
 
   return { code: 0, data: activity }
 }
@@ -696,6 +861,7 @@ async function publishActivity(form = {}, openid) {
     updatedAt: db.serverDate(),
     status: 'recruiting'
   }
+  newActivity.isTestData = isTestDataItem(newActivity, form)
 
   const res = await db.collection('activities').add({ data: newActivity })
   return { code: 0, data: { _id: res._id, ...newActivity } }
@@ -720,6 +886,10 @@ async function signup(activityId, openid) {
     }
 
     const activity = activityRes.data[0]
+    if (isTestDataItem(activity)) {
+      await safeRollback(transaction)
+      return { code: 404, message: '' }
+    }
     const enrollCount = Number(activity.enrollCount || 0)
     const maxCount = Number(activity.maxCount || 0)
 
@@ -831,13 +1001,16 @@ async function getMySignups(openid) {
 
   const activityIds = signups.map((item) => item.activityId).filter(Boolean)
 
-  const [activities, records] = await Promise.all([
+  const [activities, records, currentUser] = await Promise.all([
     fetchByFieldIn('activities', '_id', activityIds),
-    fetchByFieldIn('records', 'activityId', activityIds, { _openid: openid })
+    fetchByFieldIn('records', 'activityId', activityIds, { _openid: openid }),
+    getUserByOpenid(openid)
   ])
 
   const activityMap = new Map((activities || []).map((item) => [item._id, item]))
-  const checkedSet = new Set((records || []).map((item) => item.activityId))
+  const checkedSet = new Set(
+    filterVisibleItems(records || [], {}, () => currentUser).map((item) => item.activityId)
+  )
 
   const list = signups
     .map((signup) => {
@@ -854,8 +1027,9 @@ async function getMySignups(openid) {
       }
     })
     .filter(Boolean)
+  const visibleList = filterVisibleItems(list, {}, () => currentUser)
 
-  return { code: 0, data: list }
+  return { code: 0, data: visibleList }
 }
 
 async function submitCheckin(data = {}, openid) {
@@ -866,6 +1040,7 @@ async function submitCheckin(data = {}, openid) {
   const serviceCount = Number(data.serviceCount)
   const photos = Array.isArray(data.photos) ? data.photos.filter(Boolean) : []
   const remark = String(data.remark || '').trim()
+  const currentUser = await getUserByOpenid(openid)
 
   if (!activityId) {
     return { code: 400, message: '缂哄皯娲诲姩 ID' }
@@ -901,9 +1076,15 @@ async function submitCheckin(data = {}, openid) {
         activityId,
         _openid: openid
       })
-      .count()
+      .limit(100)
+      .get()
 
-    if (existingRecordRes.total > 0) {
+    const visibleExistingRecords = filterVisibleItems(
+      existingRecordRes.data || [],
+      {},
+      () => currentUser
+    )
+    if (visibleExistingRecords.length > 0) {
       await safeRollback(transaction)
       return { code: 400, message: '' }
     }
@@ -919,6 +1100,10 @@ async function submitCheckin(data = {}, openid) {
     }
 
     const activity = activityRes.data[0]
+    if (isTestDataItem(activity)) {
+      await safeRollback(transaction)
+      return { code: 404, message: '' }
+    }
 
     const record = {
       activityId,
@@ -942,6 +1127,7 @@ async function submitCheckin(data = {}, openid) {
     if (Number.isInteger(serviceCount) && serviceCount > 0) {
       record.serviceCount = serviceCount
     }
+    record.isTestData = isTestDataItem(record, data)
 
     const addRes = await transaction.collection('records').add({ data: record })
     await transaction.commit()
@@ -956,21 +1142,28 @@ async function submitCheckin(data = {}, openid) {
 
 async function getMyRecords(params = {}, openid) {
   const { page, pageSize, skip } = normalizePagination(params.page, params.pageSize)
+  const debugContext = await resolveDebugContext(params, openid)
 
-  const countRes = await db.collection('records').where({ _openid: openid }).count()
-  const listRes = await db
-    .collection('records')
-    .where({ _openid: openid })
-    .orderBy('checkedAt', 'desc')
-    .skip(skip)
-    .limit(pageSize)
-    .get()
+  const records = await fetchAllByWhere(
+    'records',
+    { _openid: openid },
+    { orderByField: 'checkedAt', orderDirection: 'desc', pageSize: 100 }
+  )
+  const currentUser = await getUserByOpenid(openid)
+  const pageData = paginateItems(
+    filterVisibleItems(records, debugContext, () => currentUser),
+    {
+      page,
+      pageSize,
+      skip
+    }
+  )
 
   return {
     code: 0,
     data: {
-      list: listRes.data,
-      total: countRes.total,
+      list: pageData.list,
+      total: pageData.total,
       page,
       pageSize
     }
@@ -978,69 +1171,63 @@ async function getMyRecords(params = {}, openid) {
 }
 
 async function getStatistics(openid) {
-  const [userRes, checkinCountRes, honorCountRes] = await Promise.all([
+  const [userRes, checkinRecordsRes, honorRecordsRes] = await Promise.all([
     db.collection('users').where({ _openid: openid }).limit(1).get(),
-    db.collection('records').where({ _openid: openid }).count(),
-    db.collection('honors').where({ _openid: openid }).count()
+    fetchAllByWhere(
+      'records',
+      { _openid: openid },
+      { orderByField: 'checkedAt', orderDirection: 'desc', pageSize: 100 }
+    ),
+    fetchAllByWhere(
+      'honors',
+      { _openid: openid },
+      { orderByField: 'createdAt', orderDirection: 'desc', pageSize: 100 }
+    )
   ])
-
-  const statsRes = await db
-    .collection('records')
-    .aggregate()
-    .match({
-      _openid: openid,
-      status: 'approved'
-    })
-    .group({
-      _id: null,
-      totalHours: $.sum('$serviceHours'),
-      totalCount: $.sum(1),
-      totalServed: $.sum('$serviceCount')
-    })
-    .end()
-
-  const byActivityRes = await db
-    .collection('records')
-    .aggregate()
-    .match({
-      _openid: openid,
-      status: 'approved'
-    })
-    .group({
-      _id: '$activityName',
-      personCount: $.sum('$serviceCount'),
-      totalHours: $.sum('$serviceHours')
-    })
-    .sort({ totalHours: -1 })
-    .end()
-
-  const byCategoryRes = await db
-    .collection('records')
-    .aggregate()
-    .match({
-      _openid: openid,
-      status: 'approved'
-    })
-    .group({
-      _id: '$activityLocation',
-      count: $.sum(1),
-      totalHours: $.sum('$serviceHours')
-    })
-    .sort({ totalHours: -1 })
-    .end()
-
-  const stats = statsRes.list[0] || { totalHours: 0, totalCount: 0, totalServed: 0 }
   const user = userRes.data && userRes.data.length > 0 ? userRes.data[0] : null
+  const visibleCheckinRecords = filterVisibleItems(checkinRecordsRes, {}, () => user)
+  const visibleHonorRecords = filterVisibleItems(honorRecordsRes, {}, () => user)
+  const approvedRecords = visibleCheckinRecords.filter((item) => item.status === 'approved')
+  const stats = approvedRecords.reduce(
+    (result, item) => ({
+      totalHours: result.totalHours + Number(item.serviceHours || 0),
+      totalCount: result.totalCount + 1,
+      totalServed: result.totalServed + Number(item.serviceCount || 0)
+    }),
+    { totalHours: 0, totalCount: 0, totalServed: 0 }
+  )
+  const byActivityMap = new Map()
+  const byCategoryMap = new Map()
+  approvedRecords.forEach((item) => {
+    const activityName = item.activityName || '未知活动'
+    const location = item.activityLocation || '未分类'
+    const serviceCount = Number(item.serviceCount || 0)
+    const serviceHours = Number(item.serviceHours || 0)
+    const activityStat = byActivityMap.get(activityName) || {
+      activityName,
+      personCount: 0,
+      totalHours: 0
+    }
+    activityStat.personCount += serviceCount
+    activityStat.totalHours += serviceHours
+    byActivityMap.set(activityName, activityStat)
 
-  const [checkinRecordsRes, honorRecordsRes] = await Promise.all([
-    db
-      .collection('records')
-      .where({ _openid: openid })
-      .orderBy('checkedAt', 'desc')
-      .limit(50)
-      .get(),
-    db.collection('honors').where({ _openid: openid }).orderBy('createdAt', 'desc').limit(50).get()
-  ])
+    const categoryStat = byCategoryMap.get(location) || {
+      category: location,
+      count: 0,
+      totalHours: 0
+    }
+    categoryStat.count += 1
+    categoryStat.totalHours += serviceHours
+    byCategoryMap.set(location, categoryStat)
+  })
+  const totalPoints =
+    visibleCheckinRecords
+      .filter((item) => item.status === 'approved')
+      .reduce((sum, item) => sum + Number(item.declaredPoints || 0), 0) +
+    visibleHonorRecords
+      .filter((item) => item.status === 'approved')
+      .reduce((sum, item) => sum + Number(item.honorPoints || 0), 0)
 
   return {
     code: 0,
@@ -1048,21 +1235,17 @@ async function getStatistics(openid) {
       totalHours: Number(stats.totalHours || 0),
       totalCount: Number(stats.totalCount || 0),
       totalServed: Number(stats.totalServed || 0),
-      totalPoints: Number(user?.totalPoints || 0),
-      totalCheckins: Number(checkinCountRes.total || 0),
-      totalHonors: Number(honorCountRes.total || 0),
-      checkinRecords: checkinRecordsRes.data || [],
-      honorRecords: honorRecordsRes.data || [],
-      byCategory: (byCategoryRes.list || []).map((item) => ({
-        category: item._id || '未分类',
-        count: Number(item.count || 0),
-        totalHours: Number(item.totalHours || 0)
-      })),
-      byActivity: (byActivityRes.list || []).map((item) => ({
-        activityName: item._id || '鏈煡娲诲姩',
-        personCount: Number(item.personCount || 0),
-        totalHours: Number(item.totalHours || 0)
-      }))
+      totalPoints: Number(totalPoints || user?.totalPoints || 0),
+      totalCheckins: visibleCheckinRecords.length,
+      totalHonors: visibleHonorRecords.length,
+      checkinRecords: visibleCheckinRecords.slice(0, 50),
+      honorRecords: visibleHonorRecords.slice(0, 50),
+      byCategory: Array.from(byCategoryMap.values()).sort(
+        (left, right) => right.totalHours - left.totalHours
+      ),
+      byActivity: Array.from(byActivityMap.values()).sort(
+        (left, right) => right.totalHours - left.totalHours
+      )
     }
   }
 }
@@ -1412,42 +1595,40 @@ async function getUserProfile(openid) {
   if (user?.isDeleted || String(user?.status || '') === 'disabled') {
     return { code: 403, message: '账号已禁用，请联系管理员' }
   }
-  let normalizedUser = normalizeUserData(user)
-  const storedVolunteerPoints = Number(normalizedUser?.volunteerPoints || 0)
-  const storedHonorPoints = Number(normalizedUser?.honorPoints || 0)
-  const storedTotalPoints = Number(normalizedUser?.totalPoints || 0)
-  const needBinding = !normalizedUser?.realName || !normalizedUser?.phone
-  const needMigrateScoreFields =
-    !Object.prototype.hasOwnProperty.call(user || {}, 'volunteerPoints') ||
-    !Object.prototype.hasOwnProperty.call(user || {}, 'honorPoints') ||
-    storedTotalPoints !== storedVolunteerPoints + storedHonorPoints
 
-  if (needMigrateScoreFields) {
-    const [volunteerAgg, honorAgg] = await Promise.all([
-      db
-        .collection('records')
-        .aggregate()
-        .match({ _openid: openid, status: 'approved' })
-        .group({
-          _id: null,
-          volunteerPoints: $.sum('$declaredPoints')
-        })
-        .end(),
-      db
-        .collection('honors')
-        .aggregate()
-        .match({ _openid: openid, status: 'approved' })
-        .group({
-          _id: null,
-          honorPoints: $.sum('$honorPoints')
-        })
-        .end()
-    ])
+  /** 个人积分始终按非测试、已通过记录重算，避免测试数据进入用户可见总分。 */
+  const [allVolunteerRecords, allHonorRecords] = await Promise.all([
+    fetchAllByWhere(
+      'records',
+      { _openid: openid, status: 'approved' },
+      { orderByField: 'checkedAt', orderDirection: 'desc', pageSize: 100 }
+    ),
+    fetchAllByWhere(
+      'honors',
+      { _openid: openid, status: 'approved' },
+      { orderByField: 'createdAt', orderDirection: 'desc', pageSize: 100 }
+    )
+  ])
+  const visibleVolunteerRecords = filterVisibleItems(allVolunteerRecords, {}, () => user)
+  const visibleHonorRecords = filterVisibleItems(allHonorRecords, {}, () => user)
+  const volunteerPoints = visibleVolunteerRecords.reduce(
+    (sum, item) => sum + Number(item.declaredPoints || 0),
+    0
+  )
+  const honorPoints = visibleHonorRecords.reduce(
+    (sum, item) => sum + Number(item.honorPoints || 0),
+    0
+  )
+  const totalPoints = volunteerPoints + honorPoints
+  const storedVolunteerPoints = Number(user?.volunteerPoints || 0)
+  const storedHonorPoints = Number(user?.honorPoints || 0)
+  const storedTotalPoints = Number(user?.totalPoints || 0)
+  const needSyncScoreFields =
+    storedVolunteerPoints !== volunteerPoints ||
+    storedHonorPoints !== honorPoints ||
+    storedTotalPoints !== totalPoints
 
-    const volunteerPoints = Number(volunteerAgg.list[0]?.volunteerPoints || 0)
-    const honorPoints = Number(honorAgg.list[0]?.honorPoints || 0)
-    const totalPoints = volunteerPoints + honorPoints
-
+  if (needSyncScoreFields) {
     await db
       .collection('users')
       .doc(user._id)
@@ -1461,12 +1642,15 @@ async function getUserProfile(openid) {
       })
 
     user = await getUserByOpenid(openid)
-    normalizedUser = normalizeUserData(user)
   }
 
-  const volunteerPoints = Number(normalizedUser?.volunteerPoints || 0)
-  const honorPoints = Number(normalizedUser?.honorPoints || 0)
-  const totalPoints = Number(normalizedUser?.totalPoints || volunteerPoints + honorPoints)
+  const normalizedUser = normalizeUserData({
+    ...(user || {}),
+    volunteerPoints,
+    honorPoints,
+    totalPoints
+  })
+  const needBinding = !normalizedUser?.realName || !normalizedUser?.phone
 
   return {
     code: 0,
@@ -1538,6 +1722,7 @@ async function submitVolunteerDeclaration(data = {}, openid) {
   if (Number.isFinite(payload.serviceCount) && payload.serviceCount > 0) {
     record.serviceCount = Math.floor(payload.serviceCount)
   }
+  record.isTestData = isTestDataItem(record, data)
 
   const addRes = await db.collection('records').add({ data: record })
   return {
@@ -1554,10 +1739,13 @@ async function getVolunteerRecords(params = {}, openid) {
     return { code: 400, message: '缺少用户标识' }
   }
 
-  const { page, pageSize, skip } = normalizePagination(params.page, params.pageSize)
+  const pageInfo = normalizePagination(params.page, params.pageSize)
+  const { page, pageSize } = pageInfo
   const status = String(params.status || '').trim()
   const moduleId = String(params.moduleId || '').trim()
   const yearWindow = resolveYearWindow(params.year)
+  const debugContext = await resolveDebugContext(params, openid)
+  const currentUser = await getUserByOpenid(openid)
 
   const whereQuery = { _openid: openid }
   if (status) {
@@ -1567,40 +1755,25 @@ async function getVolunteerRecords(params = {}, openid) {
     whereQuery.checkedAt = _.gte(yearWindow.start).and(_.lte(yearWindow.end))
   }
 
-  let rawList = []
-  let total = 0
-  if (moduleId) {
-    const allList = await fetchAllByWhere('records', whereQuery, {
-      orderByField: 'checkedAt',
-      orderDirection: 'desc',
-      pageSize: 100
-    })
-    const filteredList = allList.filter(
-      (item) => item.moduleId === moduleId || item.activityCategory === moduleId
-    )
-    total = filteredList.length
-    rawList = filteredList.slice(skip, skip + pageSize)
-  } else {
-    const [countRes, listRes] = await Promise.all([
-      db.collection('records').where(whereQuery).count(),
-      db
-        .collection('records')
-        .where(whereQuery)
-        .orderBy('checkedAt', 'desc')
-        .skip(skip)
-        .limit(pageSize)
-        .get()
-    ])
-    total = countRes.total
-    rawList = listRes.data || []
-  }
+  const allList = await fetchAllByWhere('records', whereQuery, {
+    orderByField: 'checkedAt',
+    orderDirection: 'desc',
+    pageSize: 100
+  })
+  /** 用户侧记录必须先按调试规则过滤，再分页，避免 total 泄露测试数据数量。 */
+  const visibleList = filterVisibleItems(allList, debugContext, () => currentUser)
+  const filteredList = moduleId
+    ? visibleList.filter((item) => item.moduleId === moduleId || item.activityCategory === moduleId)
+    : visibleList
+  const pageData = paginateItems(filteredList, pageInfo, 'checkedAt')
 
-  const list = rawList.map((item) => {
+  const list = pageData.list.map((item) => {
     const statusMeta = resolveStatusMeta(item.status || 'pending')
     const declaredPoints = Number(item.declaredPoints || 0)
     return {
       id: item._id,
       type: 'volunteer',
+      isTestData: !!item.isTestData,
       moduleId: item.moduleId || '',
       categoryName: item.activityCategory || resolveVolunteerCategory(item.moduleId || ''),
       title: item.activityName || '',
@@ -1623,7 +1796,7 @@ async function getVolunteerRecords(params = {}, openid) {
     code: 0,
     data: {
       list,
-      total,
+      total: pageData.total,
       page,
       pageSize
     }
@@ -1636,10 +1809,13 @@ async function getHonorRecords(params = {}, openid) {
     return { code: 400, message: '缺少用户标识' }
   }
 
-  const { page, pageSize, skip } = normalizePagination(params.page, params.pageSize)
+  const pageInfo = normalizePagination(params.page, params.pageSize)
+  const { page, pageSize } = pageInfo
   const status = String(params.status || '').trim()
   const levelId = normalizeHonorLevel(params.levelId || params.honorLevel)
   const yearWindow = resolveYearWindow(params.year)
+  const debugContext = await resolveDebugContext(params, openid)
+  const currentUser = await getUserByOpenid(openid)
 
   const whereQuery = { _openid: openid }
   if (status) {
@@ -1652,18 +1828,19 @@ async function getHonorRecords(params = {}, openid) {
     whereQuery.createdAt = _.gte(yearWindow.start).and(_.lte(yearWindow.end))
   }
 
-  const [countRes, listRes] = await Promise.all([
-    db.collection('honors').where(whereQuery).count(),
-    db
-      .collection('honors')
-      .where(whereQuery)
-      .orderBy('createdAt', 'desc')
-      .skip(skip)
-      .limit(pageSize)
-      .get()
-  ])
+  const allList = await fetchAllByWhere('honors', whereQuery, {
+    orderByField: 'createdAt',
+    orderDirection: 'desc',
+    pageSize: 100
+  })
+  /** 荣誉记录同样先过滤测试数据，再计算分页总数给前端。 */
+  const pageData = paginateItems(
+    filterVisibleItems(allList, debugContext, () => currentUser),
+    pageInfo,
+    'createdAt'
+  )
 
-  const list = (listRes.data || []).map((item) => {
+  const list = pageData.list.map((item) => {
     const statusMeta = resolveStatusMeta(item.status || 'pending')
     const honorPoints = Number(item.honorPoints || 0)
     const levelId = normalizeHonorLevel(item.honorLevel)
@@ -1677,6 +1854,7 @@ async function getHonorRecords(params = {}, openid) {
     return {
       id: item._id,
       type: 'honor',
+      isTestData: !!item.isTestData,
       levelId,
       categoryName,
       title: item.honorTitle || item.title || '荣誉申报',
@@ -1699,7 +1877,7 @@ async function getHonorRecords(params = {}, openid) {
     code: 0,
     data: {
       list,
-      total: countRes.total,
+      total: pageData.total,
       page,
       pageSize
     }
@@ -1775,11 +1953,14 @@ async function adminImport(data = {}, openid) {
       if (moduleId) {
         record.moduleId = moduleId
       }
+      const recordIsTestData = isTestDataItem(record, row)
+      record.isTestData = recordIsTestData
 
       const addRes = await db.collection('records').add({ data: record })
       importedVolunteer += 1
 
-      if (targetOpenid) {
+      /** 测试导入只保留明细，不写入用户正式积分，防止普通模式看到测试分数。 */
+      if (targetOpenid && !recordIsTestData) {
         const targetUser = matchedUser || (await ensureUser(targetOpenid))
         const nextPoints = Number(targetUser.totalPoints || 0) + points
         const nextVolunteerPoints = Number(targetUser.volunteerPoints || 0) + points
@@ -1871,11 +2052,14 @@ async function adminImport(data = {}, openid) {
       if (honorTitle) record.honorTitle = honorTitle
       if (awardOrganization) record.awardOrganization = awardOrganization
       record.awardTime = awardTime
+      const recordIsTestData = isTestDataItem(record, row)
+      record.isTestData = recordIsTestData
 
       const addRes = await db.collection('honors').add({ data: record })
       importedHonor += 1
 
-      if (targetUser && targetOpenid) {
+      /** 测试荣誉导入不累计正式积分，debug 模式仍可在明细中看到。 */
+      if (targetUser && targetOpenid && !recordIsTestData) {
         const nextPoints = Number(targetUser.totalPoints || 0) + honorPoints
         const nextHonorPoints = Number(targetUser.honorPoints || 0) + honorPoints
         const userPatch = {
@@ -1928,13 +2112,15 @@ async function adminAuditList(params = {}, openid) {
   const adminError = await ensureAdmin(openid)
   if (adminError) return adminError
 
-  const { page, pageSize, skip } = normalizePagination(params.page, params.pageSize)
+  const pageInfo = normalizePagination(params.page, params.pageSize)
+  const { page, pageSize, skip } = pageInfo
   const type = String(params.type || '').trim()
   const tab = Number(params.tab)
   const keyword = String(params.keyword || '').trim()
   const year = String(params.year || '').trim()
   const moduleKeyword = String(params.module || params.moduleKeyword || '').trim()
   const onlyTotal = !!params.onlyTotal
+  const debugContext = await resolveDebugContext(params, openid)
 
   let status = String(params.status || '').trim()
   if (!status && Number.isInteger(tab)) {
@@ -1946,148 +2132,6 @@ async function adminAuditList(params = {}, openid) {
   const includeVolunteer = !type || type === 'volunteer'
   const includeHonor = !type || type === 'honor'
   const whereStatus = status ? { status } : {}
-  const hasAdvancedFilter = !!(keyword || year || moduleKeyword)
-
-  /** 仅统计总数时走轻量路径，避免管理首页多次请求触发超时。 */
-  if (onlyTotal && !hasAdvancedFilter) {
-    let total = 0
-    if (includeVolunteer) {
-      const volunteerCountRes = await db.collection('records').where(whereStatus).count()
-      total += Number(volunteerCountRes.total || 0)
-    }
-    if (includeHonor) {
-      const honorCountRes = await db.collection('honors').where(whereStatus).count()
-      total += Number(honorCountRes.total || 0)
-    }
-
-    return {
-      code: 0,
-      data: {
-        list: [],
-        total,
-        page,
-        pageSize
-      }
-    }
-  }
-
-  /** 单类型且无复杂筛选时使用分页查询，避免全量拉取大表。 */
-  if (!hasAdvancedFilter && type === 'volunteer') {
-    const [countRes, listRes] = await Promise.all([
-      db.collection('records').where(whereStatus).count(),
-      db
-        .collection('records')
-        .where(whereStatus)
-        .orderBy('checkedAt', 'desc')
-        .skip(skip)
-        .limit(pageSize)
-        .get()
-    ])
-
-    const records = listRes.data || []
-    const openids = Array.from(new Set(records.map((item) => item._openid).filter(Boolean)))
-    const users = await fetchByFieldIn('users', '_openid', openids)
-    const userMap = new Map((users || []).map((item) => [item._openid, item]))
-
-    const list = records.map((item) => {
-      const user = userMap.get(item._openid)
-      const statusMeta = resolveStatusMeta(item.status || 'pending')
-      const declaredPoints = Number(item.declaredPoints || 0)
-      return {
-        id: item._id,
-        type: 'volunteer',
-        moduleId: item.moduleId || '',
-        title: item.activityName || '志愿服务申报',
-        applicantName: user?.realName || '',
-        categoryName: item.activityCategory || '志愿服务',
-        submitTime: formatYmd(item.checkedAt),
-        content: item.remark || '',
-        claimedPoints: declaredPoints,
-        approvedPoints: item.status === 'approved' ? declaredPoints : 0,
-        location: item.activityLocation || '',
-        organization: '',
-        evidenceFiles: toArray(item.photos),
-        levelId: '',
-        rejectReason: item.rejectReason || '',
-        status: item.status || 'pending',
-        statusText: statusMeta.statusText,
-        tagType: statusMeta.tagType
-      }
-    })
-
-    return {
-      code: 0,
-      data: {
-        list,
-        total: Number(countRes.total || 0),
-        page,
-        pageSize
-      }
-    }
-  }
-
-  /** 单类型且无复杂筛选时使用分页查询，避免全量拉取大表。 */
-  if (!hasAdvancedFilter && type === 'honor') {
-    const [countRes, listRes] = await Promise.all([
-      db.collection('honors').where(whereStatus).count(),
-      db
-        .collection('honors')
-        .where(whereStatus)
-        .orderBy('createdAt', 'desc')
-        .skip(skip)
-        .limit(pageSize)
-        .get()
-    ])
-
-    const honors = listRes.data || []
-    const userIds = Array.from(new Set(honors.map((item) => item.userId).filter(Boolean)))
-    const users = await fetchByFieldIn('users', '_id', userIds)
-    const userMap = new Map((users || []).map((item) => [item._id, item]))
-
-    const list = honors.map((item) => {
-      const user = userMap.get(item.userId)
-      const levelId = normalizeHonorLevel(item.honorLevel)
-      const levelLabel =
-        {
-          national: '国家级荣誉',
-          provincial: '省部级荣誉',
-          bureau: '厅局级荣誉',
-          factory: '厂处级荣誉'
-        }[levelId] || '荣誉获奖'
-      const statusMeta = resolveStatusMeta(item.status || 'pending')
-      const honorPoints = Number(item.honorPoints || 0)
-
-      return {
-        id: item._id,
-        type: 'honor',
-        levelId,
-        title: item.honorTitle || item.title || '荣誉获奖申报',
-        applicantName: item.userName || user?.realName || '',
-        categoryName: levelLabel,
-        submitTime: formatYmd(item.createdAt),
-        content: item.honorTitle || item.title || '',
-        claimedPoints: honorPoints,
-        approvedPoints: item.status === 'approved' ? honorPoints : 0,
-        location: '',
-        organization: item.awardOrganization || item.organization || '',
-        evidenceFiles: toArray(item.proofs),
-        rejectReason: item.rejectReason || '',
-        status: item.status || 'pending',
-        statusText: statusMeta.statusText,
-        tagType: statusMeta.tagType
-      }
-    })
-
-    return {
-      code: 0,
-      data: {
-        list,
-        total: Number(countRes.total || 0),
-        page,
-        pageSize
-      }
-    }
-  }
 
   let volunteerItems = []
   let honorItems = []
@@ -2101,17 +2145,23 @@ async function adminAuditList(params = {}, openid) {
     const openids = Array.from(new Set(records.map((item) => item._openid).filter(Boolean)))
     const users = await fetchByFieldIn('users', '_openid', openids)
     const userMap = new Map((users || []).map((item) => [item._openid, item]))
+    /** 管理端也先过滤测试数据，再参与关键字筛选、分页与 total 统计。 */
+    const visibleRecords = filterVisibleItems(records, debugContext, (item) =>
+      userMap.get(item._openid)
+    )
 
-    volunteerItems = records.map((item) => {
+    volunteerItems = visibleRecords.map((item) => {
       const user = userMap.get(item._openid)
       const statusMeta = resolveStatusMeta(item.status || 'pending')
       const declaredPoints = Number(item.declaredPoints || 0)
       return {
         id: item._id,
         type: 'volunteer',
+        isTestData: !!item.isTestData,
         moduleId: item.moduleId || '',
         title: item.activityName || '志愿服务申报',
         applicantName: user?.realName || '',
+        applicantPhone: user?.phone || '',
         categoryName: item.activityCategory || '志愿服务',
         submitTime: formatYmd(item.checkedAt),
         content: item.remark || '',
@@ -2136,11 +2186,19 @@ async function adminAuditList(params = {}, openid) {
       pageSize: 100
     })
     const userIds = Array.from(new Set(honors.map((item) => item.userId).filter(Boolean)))
-    const users = await fetchByFieldIn('users', '_id', userIds)
-    const userMap = new Map((users || []).map((item) => [item._id, item]))
+    const userOpenids = Array.from(new Set(honors.map((item) => item._openid).filter(Boolean)))
+    const [usersById, usersByOpenid] = await Promise.all([
+      fetchByFieldIn('users', '_id', userIds),
+      fetchByFieldIn('users', '_openid', userOpenids)
+    ])
+    const userMapById = new Map((usersById || []).map((item) => [item._id, item]))
+    const userMapByOpenid = new Map((usersByOpenid || []).map((item) => [item._openid, item]))
+    const resolveHonorUser = (item) =>
+      userMapById.get(item.userId) || userMapByOpenid.get(item._openid)
+    const visibleHonors = filterVisibleItems(honors, debugContext, resolveHonorUser)
 
-    honorItems = honors.map((item) => {
-      const user = userMap.get(item.userId)
+    honorItems = visibleHonors.map((item) => {
+      const user = resolveHonorUser(item)
       const levelId = normalizeHonorLevel(item.honorLevel)
       const levelLabel =
         {
@@ -2155,9 +2213,11 @@ async function adminAuditList(params = {}, openid) {
       return {
         id: item._id,
         type: 'honor',
+        isTestData: !!item.isTestData,
         levelId,
         title: item.honorTitle || item.title || '荣誉获奖申报',
         applicantName: item.userName || user?.realName || '',
+        applicantPhone: item.phone || user?.phone || '',
         categoryName: levelLabel,
         submitTime: formatYmd(item.createdAt),
         content: item.honorTitle || item.title || '',
@@ -2180,6 +2240,7 @@ async function adminAuditList(params = {}, openid) {
       (item) =>
         item.title.includes(keyword) ||
         item.applicantName.includes(keyword) ||
+        item.applicantPhone.includes(keyword) ||
         item.categoryName.includes(keyword) ||
         item.location.includes(keyword) ||
         item.organization.includes(keyword)
@@ -2201,7 +2262,7 @@ async function adminAuditList(params = {}, openid) {
   })
 
   const total = allItems.length
-  const list = allItems.slice(skip, skip + pageSize)
+  const list = onlyTotal ? [] : allItems.slice(skip, skip + pageSize)
 
   return {
     code: 0,
@@ -2215,75 +2276,81 @@ async function adminAuditList(params = {}, openid) {
 }
 
 /** 管理端首页摘要，合并统计与最新待审动态，减少前端并发请求。 */
-async function adminDashboardSummary(_params = {}, openid) {
+async function adminDashboardSummary(params = {}, openid) {
   const adminError = await ensureAdmin(openid)
   if (adminError) return adminError
 
-  const [
-    pendingVolunteerRes,
-    pendingHonorRes,
-    approvedVolunteerRes,
-    approvedHonorRes,
-    rejectedVolunteerRes,
-    rejectedHonorRes,
-    volunteerListRes,
-    honorListRes
-  ] = await Promise.all([
-    db.collection('records').where({ status: 'pending' }).count(),
-    db.collection('honors').where({ status: 'pending' }).count(),
-    db.collection('records').where({ status: 'approved' }).count(),
-    db.collection('honors').where({ status: 'approved' }).count(),
-    db.collection('records').where({ status: 'rejected' }).count(),
-    db.collection('honors').where({ status: 'rejected' }).count(),
-    db
-      .collection('records')
-      .where({ status: 'pending' })
-      .orderBy('checkedAt', 'desc')
-      .limit(5)
-      .get(),
-    db.collection('honors').where({ status: 'pending' }).orderBy('createdAt', 'desc').limit(5).get()
+  const debugContext = await resolveDebugContext(params, openid)
+  const dashboardStatuses = ['pending', 'approved', 'rejected']
+  const [records, honors] = await Promise.all([
+    fetchAllByWhere(
+      'records',
+      { status: _.in(dashboardStatuses) },
+      { orderByField: 'checkedAt', orderDirection: 'desc', pageSize: 100 }
+    ),
+    fetchAllByWhere(
+      'honors',
+      { status: _.in(dashboardStatuses) },
+      { orderByField: 'createdAt', orderDirection: 'desc', pageSize: 100 }
+    )
   ])
 
-  const volunteerRecords = volunteerListRes.data || []
-  const honorRecords = honorListRes.data || []
-  const volunteerOpenids = Array.from(
-    new Set(volunteerRecords.map((item) => item._openid).filter(Boolean))
-  )
-  const honorUserIds = Array.from(new Set(honorRecords.map((item) => item.userId).filter(Boolean)))
+  const volunteerOpenids = Array.from(new Set(records.map((item) => item._openid).filter(Boolean)))
+  const honorUserIds = Array.from(new Set(honors.map((item) => item.userId).filter(Boolean)))
+  const honorOpenids = Array.from(new Set(honors.map((item) => item._openid).filter(Boolean)))
 
-  const [volunteerUsers, honorUsers] = await Promise.all([
+  const [volunteerUsers, honorUsersById, honorUsersByOpenid] = await Promise.all([
     fetchByFieldIn('users', '_openid', volunteerOpenids),
-    fetchByFieldIn('users', '_id', honorUserIds)
+    fetchByFieldIn('users', '_id', honorUserIds),
+    fetchByFieldIn('users', '_openid', honorOpenids)
   ])
 
   const volunteerUserMap = new Map((volunteerUsers || []).map((item) => [item._openid, item]))
-  const honorUserMap = new Map((honorUsers || []).map((item) => [item._id, item]))
+  const honorUserMapById = new Map((honorUsersById || []).map((item) => [item._id, item]))
+  const honorUserMapByOpenid = new Map(
+    (honorUsersByOpenid || []).map((item) => [item._openid, item])
+  )
+  const resolveHonorUser = (item) =>
+    honorUserMapById.get(item.userId) || honorUserMapByOpenid.get(item._openid)
+  /** 首页卡片的数量也必须基于过滤后的数据，避免测试数据通过 count 暴露。 */
+  const visibleRecords = filterVisibleItems(records, debugContext, (item) =>
+    volunteerUserMap.get(item._openid)
+  )
+  const visibleHonors = filterVisibleItems(honors, debugContext, resolveHonorUser)
+  const countByStatus = (list, targetStatus) =>
+    list.filter((item) => String(item.status || '') === targetStatus).length
 
   const latestLogs = [
-    ...volunteerRecords.map((item) => {
-      const statusMeta = resolveStatusMeta(item.status || 'pending')
-      const user = volunteerUserMap.get(item._openid)
-      return {
-        id: item._id,
-        type: 'volunteer',
-        title: item.activityName || '志愿服务申报',
-        applicantName: user?.realName || '',
-        submitTime: formatYmd(item.checkedAt),
-        statusText: statusMeta.statusText
-      }
-    }),
-    ...honorRecords.map((item) => {
-      const statusMeta = resolveStatusMeta(item.status || 'pending')
-      const user = honorUserMap.get(item.userId)
-      return {
-        id: item._id,
-        type: 'honor',
-        title: item.honorTitle || item.title || '荣誉获奖申报',
-        applicantName: item.userName || user?.realName || '',
-        submitTime: formatYmd(item.createdAt),
-        statusText: statusMeta.statusText
-      }
-    })
+    ...visibleRecords
+      .filter((item) => item.status === 'pending')
+      .map((item) => {
+        const statusMeta = resolveStatusMeta(item.status || 'pending')
+        const user = volunteerUserMap.get(item._openid)
+        return {
+          id: item._id,
+          type: 'volunteer',
+          isTestData: !!item.isTestData,
+          title: item.activityName || '志愿服务申报',
+          applicantName: user?.realName || '',
+          submitTime: formatYmd(item.checkedAt),
+          statusText: statusMeta.statusText
+        }
+      }),
+    ...visibleHonors
+      .filter((item) => item.status === 'pending')
+      .map((item) => {
+        const statusMeta = resolveStatusMeta(item.status || 'pending')
+        const user = resolveHonorUser(item)
+        return {
+          id: item._id,
+          type: 'honor',
+          isTestData: !!item.isTestData,
+          title: item.honorTitle || item.title || '荣誉获奖申报',
+          applicantName: item.userName || user?.realName || '',
+          submitTime: formatYmd(item.createdAt),
+          statusText: statusMeta.statusText
+        }
+      })
   ]
     .sort((left, right) => {
       const leftTime = parseDateOrNull(left.submitTime)?.getTime() || 0
@@ -2296,11 +2363,12 @@ async function adminDashboardSummary(_params = {}, openid) {
     code: 0,
     data: {
       summary: {
-        pendingVolunteerCount: Number(pendingVolunteerRes.total || 0),
-        pendingHonorCount: Number(pendingHonorRes.total || 0),
+        pendingVolunteerCount: countByStatus(visibleRecords, 'pending'),
+        pendingHonorCount: countByStatus(visibleHonors, 'pending'),
         approvedCount:
-          Number(approvedVolunteerRes.total || 0) + Number(approvedHonorRes.total || 0),
-        rejectedCount: Number(rejectedVolunteerRes.total || 0) + Number(rejectedHonorRes.total || 0)
+          countByStatus(visibleRecords, 'approved') + countByStatus(visibleHonors, 'approved'),
+        rejectedCount:
+          countByStatus(visibleRecords, 'rejected') + countByStatus(visibleHonors, 'rejected')
       },
       logs: latestLogs
     }
@@ -2323,6 +2391,12 @@ async function adminAuditOperate(data = {}, openid) {
   const pass =
     typeof data.pass === 'boolean' ? data.pass : status === 'approved' || action === 'approve'
   const rejectReason = String(data.rejectReason || '').trim()
+  const debugPassThrough = {
+    debug: data.debug,
+    debugMode: data.debugMode,
+    showTestData: data.showTestData,
+    includeTestData: data.includeTestData
+  }
 
   if (targetIds.length === 0) {
     return { code: 400, message: '缺少审核记录 ID' }
@@ -2365,7 +2439,8 @@ async function adminAuditOperate(data = {}, openid) {
           recordId: targetId,
           pass,
           rejectReason,
-          approvedPoints: data.approvedPoints
+          approvedPoints: data.approvedPoints,
+          ...debugPassThrough
         },
         openid
       )
@@ -2378,7 +2453,8 @@ async function adminAuditOperate(data = {}, openid) {
           levelId: data.levelId || data.honorLevel,
           honorLevel: data.levelId || data.honorLevel,
           approvedPoints: data.approvedPoints,
-          honorPoints: data.approvedPoints
+          honorPoints: data.approvedPoints,
+          ...debugPassThrough
         },
         openid
       )
@@ -2505,6 +2581,7 @@ async function submitHonor(data = {}, openid) {
   if (honorTitle) record.honorTitle = honorTitle
   if (awardOrganization) record.awardOrganization = awardOrganization
   if (awardTime) record.awardTime = awardTime
+  record.isTestData = isTestDataItem(record, data)
 
   const res = await db.collection('honors').add({ data: record })
   return { code: 0, data: { id: res._id } }
@@ -2514,30 +2591,43 @@ async function adminGetUsers(params = {}, openid) {
   const adminError = await ensureAdmin(openid)
   if (adminError) return adminError
 
-  const { page, pageSize, skip } = normalizePagination(params.page, params.pageSize)
+  const pageInfo = normalizePagination(params.page, params.pageSize)
+  const { page, pageSize } = pageInfo
   const keyword = String(params.keyword || '').trim()
+  const debugContext = await resolveDebugContext(params, openid)
 
   const includeDeleted = String(params.includeDeleted || '').trim() === '1'
   const baseWhere = includeDeleted ? {} : { isDeleted: _.neq(true) }
-  let query = db.collection('users').where(baseWhere)
+  const users = await fetchAllByWhere('users', baseWhere, {
+    orderByField: 'createdAt',
+    orderDirection: 'desc',
+    pageSize: 100
+  })
+  let filteredUsers = filterVisibleItems(users, debugContext)
+
   if (keyword) {
-    const kw = db.RegExp({ regexp: keyword, options: 'i' })
-    const keywordWhere = _.or([{ realName: kw }, { phone: kw }])
-    query = includeDeleted
-      ? db.collection('users').where(keywordWhere)
-      : db.collection('users').where(_.and([baseWhere, keywordWhere]))
+    /** 账号管理列表支持按姓名、手机号、openid 搜索，搜索结果仍遵守测试数据过滤规则。 */
+    filteredUsers = filteredUsers.filter(
+      (item) =>
+        String(item.realName || '').includes(keyword) ||
+        String(item.phone || '').includes(keyword) ||
+        String(item._openid || '').includes(keyword)
+    )
   }
 
-  const countRes = await query.count()
-  const listRes = await query.skip(skip).limit(pageSize).get()
-
-  const list = (listRes.data || []).map(normalizeUserData)
+  const pageData = paginateItems(filteredUsers, pageInfo, 'createdAt')
+  const list = pageData.list.map((item) =>
+    normalizeUserData({
+      ...item,
+      isTestData: !!item.isTestData
+    })
+  )
 
   return {
     code: 0,
     data: {
       list,
-      total: countRes.total,
+      total: pageData.total,
       page,
       pageSize
     }
@@ -2691,11 +2781,14 @@ async function adminGetUser(params = {}, openid) {
 
   const id = String(params.id || '').trim()
   if (!id) return { code: 400, message: '缂哄皯鐢ㄦ埛 ID' }
+  const debugContext = await resolveDebugContext(params, openid)
 
   try {
     const res = await db.collection('users').doc(id).get()
     if (!res.data) return { code: 404, message: '' }
-    return { code: 0, data: normalizeUserData(res.data) }
+    const visibleUsers = filterVisibleItems([res.data], debugContext)
+    if (visibleUsers.length === 0) return { code: 404, message: '' }
+    return { code: 0, data: normalizeUserData(visibleUsers[0]) }
   } catch (err) {
     return { code: 404, message: '' }
   }
@@ -2707,6 +2800,13 @@ async function getPointsLogs(params = {}, openid) {
 
   const userId = String(params.userId || '').trim()
   if (!userId) return { code: 400, message: '缂哄皯鐢ㄦ埛 ID' }
+  const debugContext = await resolveDebugContext(params, openid)
+
+  const userRes = await db.collection('users').doc(userId).get()
+  const visibleUsers = filterVisibleItems(userRes?.data ? [userRes.data] : [], debugContext)
+  if (visibleUsers.length === 0) {
+    return { code: 404, message: '' }
+  }
 
   const res = await db
     .collection('points_logs')
@@ -2715,7 +2815,22 @@ async function getPointsLogs(params = {}, openid) {
     .limit(200)
     .get()
 
-  return { code: 0, data: { list: res.data || [] } }
+  const logs = res.data || []
+  const recordIds = logs.map((item) => item.recordId).filter(Boolean)
+  const honorIds = logs.map((item) => item.honorId).filter(Boolean)
+  const [records, honors] = await Promise.all([
+    fetchByFieldIn('records', '_id', recordIds),
+    fetchByFieldIn('honors', '_id', honorIds)
+  ])
+  const recordMap = new Map((records || []).map((item) => [item._id, item]))
+  const honorMap = new Map((honors || []).map((item) => [item._id, item]))
+  const visibleLogs = filterVisibleItems(logs, debugContext, (item) => {
+    if (item.recordId) return recordMap.get(item.recordId)
+    if (item.honorId) return honorMap.get(item.honorId)
+    return visibleUsers[0]
+  })
+
+  return { code: 0, data: { list: visibleLogs } }
 }
 
 async function adjustUserPoints(data = {}, openid) {
@@ -2783,28 +2898,31 @@ async function adminGetCheckins(params = {}, openid) {
   const adminError = await ensureAdmin(openid)
   if (adminError) return adminError
 
-  const { page, pageSize, skip } = normalizePagination(params.page, params.pageSize)
+  const pageInfo = normalizePagination(params.page, params.pageSize)
+  const { page, pageSize } = pageInfo
   const status = String(params.status || '').trim()
   const whereQuery = status ? { status } : {}
+  const debugContext = await resolveDebugContext(params, openid)
 
-  const countRes = await db.collection('records').where(whereQuery).count()
-  const listRes = await db
-    .collection('records')
-    .where(whereQuery)
-    .orderBy('checkedAt', 'desc')
-    .skip(skip)
-    .limit(pageSize)
-    .get()
-
-  const records = listRes.data || []
+  const records = await fetchAllByWhere('records', whereQuery, {
+    orderByField: 'checkedAt',
+    orderDirection: 'desc',
+    pageSize: 100
+  })
   const userOpenids = records.map((item) => item._openid).filter(Boolean)
   const users = await fetchByFieldIn('users', '_openid', userOpenids)
   const userMap = new Map((users || []).map((item) => [item._openid, item]))
+  const pageData = paginateItems(
+    filterVisibleItems(records, debugContext, (item) => userMap.get(item._openid)),
+    pageInfo,
+    'checkedAt'
+  )
 
-  const list = records.map((record) => {
+  const list = pageData.list.map((record) => {
     const user = userMap.get(record._openid)
     return {
       ...record,
+      isTestData: !!record.isTestData,
       realName: user?.realName || '',
       phone: user?.phone || ''
     }
@@ -2814,7 +2932,7 @@ async function adminGetCheckins(params = {}, openid) {
     code: 0,
     data: {
       list,
-      total: countRes.total,
+      total: pageData.total,
       page,
       pageSize
     }
@@ -2829,6 +2947,7 @@ async function auditCheckin(data = {}, openid) {
   const pass = !!data.pass
   const rejectReason = String(data.rejectReason || '').trim()
   const approvedPointsInput = Number(data.approvedPoints)
+  const debugContext = await resolveDebugContext(data, openid)
 
   if (!recordId) return { code: 400, message: '缂哄皯璁板綍 ID' }
 
@@ -2838,6 +2957,20 @@ async function auditCheckin(data = {}, openid) {
     const record = recordRes.data
 
     if (!record) {
+      await safeRollback(transaction)
+      return { code: 404, message: '' }
+    }
+
+    const userRes = await transaction
+      .collection('users')
+      .where({ _openid: record._openid })
+      .limit(1)
+      .get()
+    let user = userRes.data && userRes.data.length > 0 ? userRes.data[0] : null
+
+    const recordIsTestData = isTestDataItem(record, user)
+    /** 直接审核接口也遵守测试数据隔离，避免绕过列表按 ID 操作测试数据。 */
+    if (recordIsTestData && !debugContext.includeTestData) {
       await safeRollback(transaction)
       return { code: 404, message: '' }
     }
@@ -2867,14 +3000,7 @@ async function auditCheckin(data = {}, openid) {
         }
       }
 
-      const userRes = await transaction
-        .collection('users')
-        .where({ _openid: record._openid })
-        .limit(1)
-        .get()
-      let user = userRes.data && userRes.data.length > 0 ? userRes.data[0] : null
-
-      if (!user) {
+      if (!user && !recordIsTestData) {
         const createRes = await transaction.collection('users').add({
           data: {
             _openid: record._openid,
@@ -2893,23 +3019,25 @@ async function auditCheckin(data = {}, openid) {
         user = createdUser.data
       }
 
-      const currentPoints = Number(user?.totalPoints || 0)
-      const currentVolunteerPoints = Number(user?.volunteerPoints || 0)
-      const nextPoints = currentPoints + declaredPoints
-      const nextVolunteerPoints = currentVolunteerPoints + declaredPoints
-      const nextCheckinCount = Number(user?.checkinCount || 0) + 1
+      let nextPoints = Number(user?.totalPoints || 0)
+      if (!recordIsTestData && user) {
+        const currentVolunteerPoints = Number(user?.volunteerPoints || 0)
+        nextPoints += declaredPoints
+        const nextVolunteerPoints = currentVolunteerPoints + declaredPoints
+        const nextCheckinCount = Number(user?.checkinCount || 0) + 1
 
-      await transaction
-        .collection('users')
-        .doc(user._id)
-        .update({
-          data: {
-            totalPoints: nextPoints,
-            volunteerPoints: nextVolunteerPoints,
-            checkinCount: nextCheckinCount,
-            updatedAt: db.serverDate()
-          }
-        })
+        await transaction
+          .collection('users')
+          .doc(user._id)
+          .update({
+            data: {
+              totalPoints: nextPoints,
+              volunteerPoints: nextVolunteerPoints,
+              checkinCount: nextCheckinCount,
+              updatedAt: db.serverDate()
+            }
+          })
+      }
 
       await transaction
         .collection('records')
@@ -2925,19 +3053,22 @@ async function auditCheckin(data = {}, openid) {
           }
         })
 
-      await transaction.collection('points_logs').add({
-        data: {
-          userId: user._id,
-          userOpenid: user._openid || '',
-          operatorId: openid,
-          changeAmount: declaredPoints,
-          afterPoints: nextPoints,
-          reason: `打卡审核通过：${record.activityName || ''}`,
-          type: 'audit_pass',
-          recordId,
-          createdAt: db.serverDate()
-        }
-      })
+      /** 测试记录可在 debug 下审核流转，但不写入正式积分流水。 */
+      if (!recordIsTestData && user) {
+        await transaction.collection('points_logs').add({
+          data: {
+            userId: user._id,
+            userOpenid: user._openid || '',
+            operatorId: openid,
+            changeAmount: declaredPoints,
+            afterPoints: nextPoints,
+            reason: `打卡审核通过：${record.activityName || ''}`,
+            type: 'audit_pass',
+            recordId,
+            createdAt: db.serverDate()
+          }
+        })
+      }
     } else {
       if (!rejectReason) {
         await safeRollback(transaction)
@@ -2967,33 +3098,70 @@ async function auditCheckin(data = {}, openid) {
   }
 }
 
-async function adminGetStats(_params = {}, openid) {
+async function adminGetStats(params = {}, openid) {
   const adminError = await ensureAdmin(openid)
   if (adminError) return adminError
 
-  const usersCount = await db.collection('users').count()
-  const checkinsCount = await db.collection('records').count()
+  const debugContext = await resolveDebugContext(params, openid)
+  const [users, records, honors] = await Promise.all([
+    fetchAllByWhere('users', {}, { pageSize: 100 }),
+    fetchAllByWhere(
+      'records',
+      {},
+      { orderByField: 'checkedAt', orderDirection: 'desc', pageSize: 100 }
+    ),
+    fetchAllByWhere(
+      'honors',
+      {},
+      { orderByField: 'createdAt', orderDirection: 'desc', pageSize: 100 }
+    )
+  ])
+  const userMapByOpenid = new Map((users || []).map((item) => [item._openid, item]))
+  const userMapById = new Map((users || []).map((item) => [item._id, item]))
+  const visibleUsers = filterVisibleItems(users, debugContext)
+  const visibleRecords = filterVisibleItems(records, debugContext, (item) =>
+    userMapByOpenid.get(item._openid)
+  )
+  const visibleHonors = filterVisibleItems(
+    honors,
+    debugContext,
+    (item) => userMapById.get(item.userId) || userMapByOpenid.get(item._openid)
+  )
+  const visibleOpenids = new Set(visibleUsers.map((item) => item._openid).filter(Boolean))
+  const scoreByOpenid = new Map()
 
-  const pointsAgg = await db
-    .collection('users')
-    .aggregate()
-    .group({ _id: null, totalPointsIssued: $.sum('$totalPoints') })
-    .end()
+  visibleRecords
+    .filter((item) => item.status === 'approved')
+    .forEach((item) => {
+      const key = item._openid || ''
+      scoreByOpenid.set(key, Number(scoreByOpenid.get(key) || 0) + Number(item.declaredPoints || 0))
+    })
+  visibleHonors
+    .filter((item) => item.status === 'approved')
+    .forEach((item) => {
+      const owner = userMapById.get(item.userId) || userMapByOpenid.get(item._openid)
+      const key = item._openid || owner?._openid || ''
+      scoreByOpenid.set(key, Number(scoreByOpenid.get(key) || 0) + Number(item.honorPoints || 0))
+    })
 
-  const totalPointsIssued = pointsAgg.list[0]?.totalPointsIssued || 0
-
-  const topRes = await db.collection('users').orderBy('totalPoints', 'desc').limit(5).get()
-
-  const topUsers = (topRes.data || []).map((item) => ({
-    realName: item.realName || '未命名',
-    totalPoints: Number(item.totalPoints || 0)
-  }))
+  const totalPointsIssued = Array.from(scoreByOpenid.values()).reduce(
+    (sum, value) => sum + Number(value || 0),
+    0
+  )
+  const topUsers = visibleUsers
+    .map((item) => ({
+      realName: item.realName || '未命名',
+      totalPoints: Number(scoreByOpenid.get(item._openid) || 0)
+    }))
+    .filter((item) => item.totalPoints > 0 || visibleOpenids.size > 0)
+    .sort((left, right) => right.totalPoints - left.totalPoints)
+    .slice(0, 5)
 
   return {
     code: 0,
     data: {
-      totalUsers: usersCount.total,
-      totalCheckins: checkinsCount.total,
+      totalUsers: visibleUsers.length,
+      totalCheckins: visibleRecords.length,
       totalPointsIssued,
       topUsers
     }
@@ -3004,29 +3172,39 @@ async function adminGetHonors(params = {}, openid) {
   const adminError = await ensureAdmin(openid)
   if (adminError) return adminError
 
-  const { page, pageSize, skip } = normalizePagination(params.page, params.pageSize)
+  const pageInfo = normalizePagination(params.page, params.pageSize)
+  const { page, pageSize } = pageInfo
   const status = String(params.status || '').trim()
   const whereQuery = status ? { status } : {}
+  const debugContext = await resolveDebugContext(params, openid)
 
-  const countRes = await db.collection('honors').where(whereQuery).count()
-  const listRes = await db
-    .collection('honors')
-    .where(whereQuery)
-    .orderBy('createdAt', 'desc')
-    .skip(skip)
-    .limit(pageSize)
-    .get()
-
-  const honors = listRes.data || []
+  const honors = await fetchAllByWhere('honors', whereQuery, {
+    orderByField: 'createdAt',
+    orderDirection: 'desc',
+    pageSize: 100
+  })
   const userIds = honors.map((item) => item.userId).filter(Boolean)
-  const users = await fetchByFieldIn('users', '_id', userIds)
-  const userMap = new Map((users || []).map((item) => [item._id, item]))
+  const userOpenids = honors.map((item) => item._openid).filter(Boolean)
+  const [usersById, usersByOpenid] = await Promise.all([
+    fetchByFieldIn('users', '_id', userIds),
+    fetchByFieldIn('users', '_openid', userOpenids)
+  ])
+  const userMapById = new Map((usersById || []).map((item) => [item._id, item]))
+  const userMapByOpenid = new Map((usersByOpenid || []).map((item) => [item._openid, item]))
+  const resolveHonorUser = (item) =>
+    userMapById.get(item.userId) || userMapByOpenid.get(item._openid)
+  const pageData = paginateItems(
+    filterVisibleItems(honors, debugContext, resolveHonorUser),
+    pageInfo,
+    'createdAt'
+  )
 
-  const list = honors.map((item) => {
-    const user = userMap.get(item.userId)
+  const list = pageData.list.map((item) => {
+    const user = resolveHonorUser(item)
     return {
       ...item,
       id: item._id,
+      isTestData: !!item.isTestData,
       userName: item.userName || user?.realName || '',
       phone: item.phone || user?.phone || ''
     }
@@ -3036,7 +3214,7 @@ async function adminGetHonors(params = {}, openid) {
     code: 0,
     data: {
       list,
-      total: countRes.total,
+      total: pageData.total,
       page,
       pageSize
     }
@@ -3052,6 +3230,7 @@ async function adminAuditHonor(data = {}, openid) {
   const rejectReason = String(data.rejectReason || '').trim()
   const levelIdInput = normalizeHonorLevel(data.levelId || data.honorLevel)
   const approvedPointsInput = Number(data.approvedPoints || data.honorPoints)
+  const debugContext = await resolveDebugContext(data, openid)
 
   if (!honorId) return { code: 400, message: '缂哄皯鑽ｈ獕璁板綍 ID' }
 
@@ -3061,6 +3240,31 @@ async function adminAuditHonor(data = {}, openid) {
     const honor = honorRes.data
 
     if (!honor) {
+      await safeRollback(transaction)
+      return { code: 404, message: '' }
+    }
+
+    let user = null
+    if (honor.userId) {
+      try {
+        const userRes = await transaction.collection('users').doc(honor.userId).get()
+        user = userRes.data || null
+      } catch (err) {
+        user = null
+      }
+    }
+    if (!user && honor._openid) {
+      const userRes = await transaction
+        .collection('users')
+        .where({ _openid: honor._openid })
+        .limit(1)
+        .get()
+      user = userRes.data && userRes.data.length > 0 ? userRes.data[0] : null
+    }
+
+    const honorIsTestData = isTestDataItem(honor, user)
+    /** 直接审核荣誉时同样隔离测试数据，默认不允许通过 ID 触达。 */
+    if (honorIsTestData && !debugContext.includeTestData) {
       await safeRollback(transaction)
       return { code: 404, message: '' }
     }
@@ -3083,43 +3287,28 @@ async function adminAuditHonor(data = {}, openid) {
         return { code: 400, message: '荣誉级别或积分不合法' }
       }
 
-      let user = null
-      if (honor.userId) {
-        try {
-          const userRes = await transaction.collection('users').doc(honor.userId).get()
-          user = userRes.data || null
-        } catch (err) {
-          user = null
-        }
-      }
-      if (!user && honor._openid) {
-        const userRes = await transaction
-          .collection('users')
-          .where({ _openid: honor._openid })
-          .limit(1)
-          .get()
-        user = userRes.data && userRes.data.length > 0 ? userRes.data[0] : null
-      }
-      if (!user) {
+      if (!user && !honorIsTestData) {
         await safeRollback(transaction)
         return { code: 404, message: '' }
       }
 
-      const currentPoints = Number(user.totalPoints || 0)
-      const currentHonorPoints = Number(user.honorPoints || 0)
-      const nextPoints = currentPoints + honorPoints
-      const nextHonorPoints = currentHonorPoints + honorPoints
+      let nextPoints = Number(user?.totalPoints || 0)
+      if (!honorIsTestData && user) {
+        const currentHonorPoints = Number(user.honorPoints || 0)
+        nextPoints += honorPoints
+        const nextHonorPoints = currentHonorPoints + honorPoints
 
-      await transaction
-        .collection('users')
-        .doc(user._id)
-        .update({
-          data: {
-            totalPoints: nextPoints,
-            honorPoints: nextHonorPoints,
-            updatedAt: db.serverDate()
-          }
-        })
+        await transaction
+          .collection('users')
+          .doc(user._id)
+          .update({
+            data: {
+              totalPoints: nextPoints,
+              honorPoints: nextHonorPoints,
+              updatedAt: db.serverDate()
+            }
+          })
+      }
 
       await transaction
         .collection('honors')
@@ -3136,19 +3325,22 @@ async function adminAuditHonor(data = {}, openid) {
           }
         })
 
-      await transaction.collection('points_logs').add({
-        data: {
-          userId: user._id,
-          userOpenid: user._openid || '',
-          operatorId: openid,
-          changeAmount: honorPoints,
-          afterPoints: nextPoints,
-          reason: `荣誉审核通过：${honorLevel || ''}`,
-          type: 'audit_pass',
-          honorId,
-          createdAt: db.serverDate()
-        }
-      })
+      /** 测试荣誉只走审核状态，不写正式积分流水。 */
+      if (!honorIsTestData && user) {
+        await transaction.collection('points_logs').add({
+          data: {
+            userId: user._id,
+            userOpenid: user._openid || '',
+            operatorId: openid,
+            changeAmount: honorPoints,
+            afterPoints: nextPoints,
+            reason: `荣誉审核通过：${honorLevel || ''}`,
+            type: 'audit_pass',
+            honorId,
+            createdAt: db.serverDate()
+          }
+        })
+      }
     } else {
       if (!rejectReason) {
         await safeRollback(transaction)

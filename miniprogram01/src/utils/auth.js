@@ -4,11 +4,20 @@ const LOGIN_PAGE = '/pages/login/login'
 let interceptorReady = false
 
 const getSubscribeTemplateIds = () => {
-  const raw = import.meta.env.VITE_SUBSCRIBE_TEMPLATE_IDS || ''
-  return raw
-    .split(',')
-    .map((item) => item.trim())
+  const raw = [
+    import.meta.env.VITE_AUDIT_SUBSCRIBE_TEMPLATE_ID || '',
+    import.meta.env.VITE_SUBSCRIBE_TEMPLATE_IDS || ''
+  ]
     .filter(Boolean)
+    .join(',')
+  return Array.from(
+    new Set(
+      raw
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean)
+    )
+  )
 }
 
 /** 统一获取当前页面路径，供全局守卫判断是否需要放行。 */
@@ -184,15 +193,21 @@ const resolveSubscribeFailMessage = (error = {}) => {
 }
 
 /** 审核结果订阅申请，提交成功后调用。 */
-export const requestAuditSubscribeMessage = (userStore) => {
+export const requestAuditSubscribeMessage = (userStore, options = {}) => {
+  const { showUnconfiguredModal = false } = options
   const tmplIds = getSubscribeTemplateIds()
   if (tmplIds.length === 0) {
     userStore?.setSubscribeStatus('unconfigured')
-    uni.showModal({
-      title: '订阅暂不可用',
-      content: '当前环境尚未配置审核结果通知模板，请联系管理员配置后再试。',
-      showCancel: false
-    })
+    console.warn(
+      '[subscribe] Missing audit subscribe template ID. Configure VITE_AUDIT_SUBSCRIBE_TEMPLATE_ID or VITE_SUBSCRIBE_TEMPLATE_IDS.'
+    )
+    if (showUnconfiguredModal) {
+      uni.showModal({
+        title: '订阅暂不可用',
+        content: '当前环境尚未配置审核结果通知模板，请联系管理员配置后再试。',
+        showCancel: false
+      })
+    }
     return Promise.resolve(false)
   }
 

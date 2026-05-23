@@ -118,7 +118,7 @@ const handleSubscribe = async () => {
 
   subscribing.value = true
   try {
-    await requestAuditSubscribeMessage(userStore)
+    await requestAuditSubscribeMessage(userStore, { showUnconfiguredModal: true })
   } finally {
     subscribing.value = false
   }
