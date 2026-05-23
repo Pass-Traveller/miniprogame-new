@@ -697,18 +697,7 @@ async function ensureAdmin(openid) {
   return null
 }
 
-async function ensureSingleSuperAdmin() {
-  const countRes = await db.collection('users').where({ role: ROLE_SUPER_ADMIN }).count()
-  if (Number(countRes.total || 0) !== 1) {
-    return { code: 409, message: 'super-admin 配置异常，系统要求且仅允许 1 个 super-admin' }
-  }
-  return null
-}
-
 async function ensureSuperAdmin(openid) {
-  const singleError = await ensureSingleSuperAdmin()
-  if (singleError) return singleError
-
   const user = await getUserByOpenid(openid)
   if (!user || normalizeRoleValue(user.role) !== ROLE_SUPER_ADMIN) {
     return { code: 403, message: '仅 super-admin 可执行该操作' }
